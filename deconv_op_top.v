@@ -94,6 +94,26 @@ module deconv_op_top
         .o_full_start         (o_full_start         )
     );
 
+    // weight_fifo u_weight_fifo 
+    // #(
+    //     .BIT_WIDTH     (BIT_WIDTH  ),
+    //     .NO_COL_KERNEL (WEIGHT_SIZE),
+    //     .DEPTH_SIZE    (WEIGHT_SIZE*WEIGHT_SIZE)
+    // )
+    // (
+    //     .i_clk           (i_clk             )  ,
+    //     .i_rst_n         (i_rst_n           )  ,
+    //     .wr_en_fifo      (o_weight_bram_load)  ,
+    //     .rd_en_fifo      (en_prcs_new_wcoln | !o_full_start)  ,
+    //     .loop_back       (en_fifo_loop      )  ,
+    //     .i_flush         (en_prcs_new_chnl  )  , 
+    //     .data_in         (o_weight_bram_dat )  ,     //each iteration load one channel only
+    //     .colw_data_out   (colw_data_out     )  ,     //one column weight
+    //     .s_empty         (s_empty_fifo      )  ,     //empty when flush, then load new channel of same kernel
+    //     .s_full          (s_full_fifo       )  ,     //no use
+    //     .col_export_done (col_export_done   )  ,     //connect with i_enable signal of multiply module
+    // );
+    
     overlap_pcsr 
     #(
         .INPUT_WIDTH          (N_PIX_OUT        ),
