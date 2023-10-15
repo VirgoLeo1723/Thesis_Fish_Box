@@ -1,3 +1,25 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 10/08/2023 12:19:33 PM
+// Design Name: 
+// Module Name: shift_register
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
 module shift_register 
 #(
     parameter BIT_WIDTH = 8,
@@ -14,17 +36,15 @@ module shift_register
     input en_shift,
     input [STRB_WIDTH-1:0] data_strobe,
     input [2*BIT_WIDTH*N_PIX_IN-1:0] data_in,
-    output [2*BIT_WIDTH*N_PIX_OUT-1:0] data_out
+    output [2*BIT_WIDTH*N_PIX_OUT-1:0] data_out,
+    output accumn_fin
 );
     localparam BIT_LEFT = 2*BIT_WIDTH*N_PIX_OUT - 2*BIT_WIDTH*N_COL_KERNEL;
 
     reg [2*BIT_WIDTH*N_PIX_OUT-1:0] tmp_data_out;
     reg [2*BIT_WIDTH*N_PIX_OUT-1:0] data_accumm;
     reg [2*BIT_WIDTH*N_COL_KERNEL-1:0] sub_data;
-    reg accum_fin_continue ;
 
-    wire [STRB_WIDTH-1:0] data_strobe;
-    wire reg_data;
 
     integer byte_id; //index
 
@@ -47,26 +67,39 @@ module shift_register
             end 
         end
     end
-
+    
+    integer cnt_accumm;
+    reg     accum_fin_continue;
+    integer tmp_cnt_accum;
     always @(posedge clk, negedge rst_n) begin
         if(!rst_n) begin
             data_accumm <= 0;
-            cnt_accumm <= 0;
+            cnt_accumm  <= 3;
         end
         else begin
-            if(en_shift) begin
-                for(byte_id = 0; byte_id < N_COL_FEATURE ; byte_id = byte_id + 1) begin
-                    if(data_strobe[byte_id] == 1) begin
-                        data_accumm <= data_accumm + tmp_data_out;
-                        cnt_accumm <= cnt_accumm + 1;
+            if(cnt_accumm == N_COL_FEATURE-1)
+            begin
+                data_accumm <= 0;
+                cnt_accumm <= 0;
+            end
+            else
+            begin
+                if(en_shift && ~accum_fin_continue) 
+                begin
+                    for(byte_id = 0; byte_id < N_COL_FEATURE ; byte_id = byte_id + 1) 
+                    begin
+                        if(data_strobe[byte_id] == 1) begin
+                            data_accumm <= data_accumm + tmp_data_out;
+                            cnt_accumm <= cnt_accumm + 1;
+                        end
                     end
                 end
-            end 
+            end
         end
     end
-
+    
     always @(posedge clk, negedge rst_n) begin
-        if(rst_n) begin
+        if(!rst_n) begin
             accum_fin_continue <= 0;
             tmp_cnt_accum <= 0;
         end
@@ -76,17 +109,26 @@ module shift_register
                 tmp_cnt_accum <= tmp_cnt_accum + 1;
             end 
             else begin
-                if(tmp_cnt_accum != NO_COL_KERNEL-1) begin
+                if(tmp_cnt_accum != N_COL_KERNEL-1 && tmp_cnt_accum >0) begin
                     accum_fin_continue <= 1;
                     tmp_cnt_accum <= tmp_cnt_accum + 1;
                 end
                 else begin
-                    accum_fin_continue <= 0;
-                    tmp_cnt_accum <= 0;
+                    if(tmp_cnt_accum == N_COL_KERNEL-1) begin
+                        accum_fin_continue <= 0;
+                        tmp_cnt_accum <= 0;
+                    end
+                    else
+                    begin
+                        if (!tmp_cnt_accum && !req_data )
+                        begin
+                            tmp_cnt_accum <= 0;
+                        end
+                    end
                 end
             end
         end
     end
-    assign req_data = (cnt_accumm == N_COL_FEATURE-1) ? 1 : 0
+    assign req_data = (cnt_accumm == N_COL_FEATURE-1) ? 1 : 0;
     assign accumn_fin = req_data | accum_fin_continue;
 endmodule

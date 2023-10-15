@@ -32,11 +32,13 @@ module multiply
     input                        i_enable_colw ,
     input                        i_enable_colip,
     output                       o_ready       ,
-    output                       o_start
+    output                       o_start       ,
+    output                       o_init
 );
 
 localparam PIPELINE_STAGE = 1;
 reg start_reg;
+reg init_core_reg;
 reg [BIT_WIDTH-1:0] pix_w;
 reg [BIT_WIDTH-1:0] pix_f;
 
@@ -47,6 +49,7 @@ reg reg_ready;
 
 assign pre_valid = (cnt == PIPELINE_STAGE) ? 1 : 0;
 assign o_start   = start_reg;
+assign o_init    = init_core_reg;
 assign o_ready   = reg_ready; // to acknowledge the product value for other process
 
 mult_gen_0 mul1 (
@@ -118,6 +121,18 @@ always @(posedge i_clk, negedge i_rst_n) begin
   end
 end
 
+always @(posedge i_clk, negedge i_rst_n) begin
+    if(!i_rst_n) 
+    begin
+        init_core_reg <= 1;
+    end
+    else begin
+        if(cnt == PIPELINE_STAGE) 
+        begin
+            init_core_reg <= 0;
+        end
+    end
+end
 
 
 //-----------------------------------------------------------//

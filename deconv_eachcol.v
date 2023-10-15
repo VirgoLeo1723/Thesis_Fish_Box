@@ -40,12 +40,13 @@ module deconv_eachcol
     input   i_enable_loadip                                                         , //load one col input
     output  o_ready                                                                 ,
     output  o_en_strobe                                                             ,
-    output  o_full_start
+    output  o_full_start                                                            ,
+    output  o_init                      
 );
     genvar i;
 
     reg [3:0] ip_col_index;
-    wire last_ip_col = (ip_col_index == NO_COL_INPUT_FEATURE - 1) ? 1 : 0;
+    wire last_ip_col = (ip_col_index == NO_COL_INPUT_FEATURE ) ? 1 : 0;
 
     reg loop_back;
     reg reg_pre_en;
@@ -62,7 +63,8 @@ module deconv_eachcol
                                 .i_enable_colw          (i_enable_loadw)                              ,
                                 .i_enable_colip         (i_enable_loadip)                             ,
                                 .o_ready                (o_ready)                                     ,
-                                .o_start                (o_full_start)                                     
+                                .o_start                (o_full_start) , 
+                                .o_init                 (o_init)                                   
                                 );
     end
     endgenerate
@@ -74,7 +76,6 @@ module deconv_eachcol
     //the loop back is operating until one input channel is filtered
     //ip_col_index is tracking the order of input column
     //-----------------------------------------------------------------//
-
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
             //new_colw_flag <= 0;
@@ -82,13 +83,13 @@ module deconv_eachcol
             loop_back    <= 0;
         end
         else begin
-            if(kernel_column_id == NO_COL_KERNEL-1) begin
+            if(kernel_column_id == NO_COL_KERNEL) begin
                 //new_colw_flag <= 0               ;
                 ip_col_index <= ip_col_index + 1 ;
                 loop_back    <= 1                ; //loop back the first column of same weight channel
             end
             else begin
-                if(last_ip_col & (kernel_column_id == NO_COL_KERNEL-1)) begin
+                if(last_ip_col) begin
                     ip_col_index <= 0;
                     loop_back <= 0;
                 end
@@ -121,8 +122,9 @@ module deconv_eachcol
             reg_pre_en <= 0;
         end
         else begin
-            if(w_en_accumm) begin
-                reg_pre_en <= 1;
+            if(w_en_accumm) 
+            begin
+                reg_pre_en <= 1'b1;
             end
         end
     end

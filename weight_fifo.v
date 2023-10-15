@@ -35,19 +35,20 @@ module weight_fifo
     input loop_back                 ,
     input i_flush                   , 
     input [BIT_WIDTH-1:0] data_in   ,
-    output [BIT_WIDTH*NO_COL_KERNEL-1:0] colw_data_out , //one column weight
+    output reg [BIT_WIDTH*NO_COL_KERNEL-1:0] colw_data_out , //one column weight
     output s_empty                  ,
     output s_full                   ,
-    output col_export_done          ,                   //connect with i_enable signal of multiply module
-    output reg request_data				,
+    output reg col_export_done      ,                   //connect with i_enable signal of multiply module
+    output reg request_data	        ,
     output reg flush_fin			,
-    output reg loop_fin  
+    output reg loop_fin             ,
+    output     init                 
 );
 
-  	localparam FIFO_DEPTH = $clog2(N_OF_PIXELS);
+//  	localparam FIFO_DEPTH = $clog2(N_OF_PIXELS);
     // LOCAL VARIABLES//
-    reg [BIT_WIDTH-1:0] ram [0:FIFO_DEPTH-1];
-    reg [BIT_WIDTH:0] wr_pt, rd_pt          ;
+    reg [BIT_WIDTH-1:0] ram [0:N_OF_PIXELS-1];
+    reg [BIT_WIDTH:0]   wr_pt, rd_pt          ;
     reg [BIT_WIDTH-1:0] tmp_data_out        ;
     reg col_export_reg                      ;
     reg [2:0] cnt_concat                    ;
@@ -55,16 +56,18 @@ module weight_fifo
     wire fifo_idle                          ;
     wire threshold                          ;
     wire end_channel                        ;
+    reg  core_init                          ;  
     integer i;
 
     assign re_fifo = !s_empty & rd_en;
     assign we_fifo = !s_full & wr_en ;
 
-    assign s_full = {~wr_pt[BIT_WIDTH], wr_pt[BIT_WIDTH-1:0]} == rd_pt;
+//    assign s_full = {~wr_pt[BIT_WIDTH], wr_pt[BIT_WIDTH-1:0]} == rd_pt;
+    assign s_full  = wr_pt == N_OF_PIXELS;
     assign s_empty = wr_pt == rd_pt;
     assign fifo_idle = !s_full & !s_empty;
 
-    assign threshold = (rd_pt == N_OF_PIXELS); //indicate the last pixel of a weight channel
+    assign threshold   = (rd_pt == N_OF_PIXELS); //indicate the last pixel of a weight channel
     assign end_channel = (wr_pt == N_OF_PIXELS);
 
     always @(posedge i_clk, negedge i_rst_n) begin
@@ -84,7 +87,22 @@ module weight_fifo
             end
         end
     end
-
+    
+    always @(posedge i_clk, negedge i_rst_n)
+    begin
+        if (!i_rst_n)
+        begin
+            core_init <= 1'b1;
+        end
+        else
+        begin
+            if (cnt_concat == NO_COL_KERNEL-1)
+            begin
+                core_init <= 1'b0;
+            end
+        end
+    end
+    assign init = core_init;
     //---------------------------------------------------------------//
     //load each pixel of one column until done one column 
     //and write in a register
@@ -139,52 +157,82 @@ module weight_fifo
             col_res_reg <= 0;
         end
         else begin
-            if(re_fifo) begin
-              col_res_reg <= {col_res_reg[BIT_WIDTH*(NO_COL_KERNEL-1)-1:0], tmp_data_out};
-            end
+            col_res_reg <= {col_res_reg[BIT_WIDTH*(NO_COL_KERNEL-1)-1:0], tmp_data_out};
         end
     end
 
-    assign colw_data_out   = (col_export_done) ? col_res_reg : 0;
-    assign col_export_done = col_export_reg; //valid
+//    assign colw_data_out   = (col_export_done) ? col_res_reg : 0;
+//    assign col_export_done = col_export_reg; //valid
 
     //------------------------------------------------------------//
     // when finish one column
     //------------------------------------------------------------//
     always @(posedge i_clk, negedge i_rst_n) begin
       if(!i_rst_n) begin
-            cnt_concat <= 0;
-            col_export_reg <= 0;
+            cnt_concat      <= 0;
+            col_export_reg  <= 0;
         end
         else begin
-          	if(re_fifo) begin 
-                if(cnt_concat == NO_COL_KERNEL) begin
+          	if(re_fifo) 
+          	begin 
+                if(cnt_concat == NO_COL_KERNEL) 
+                begin
                     cnt_concat <= 0;
                     col_export_reg <= 1; 
                 end
-                else begin
-                    cnt_concat <= cnt_concat + 1;
+                else 
+                begin
+                    cnt_concat     <= cnt_concat + 1;
                     col_export_reg <= 0;
                 end
             end
-            else begin
-              if(rd_en && (cnt_concat == NO_COL_KERNEL)) begin
-                col_export_reg <= 1;
-              end
+            else 
+            begin
+                if((cnt_concat == NO_COL_KERNEL)) 
+                begin
+                    col_export_reg <= 1'b1;
+                    cnt_concat     <= 0;
+                end
+                else
+                begin
+                    col_export_reg <= 1'b0;
+                end
             end
         end
     end
-
+    
+    always @(posedge i_clk, negedge i_rst_n) 
+    begin
+        if (!i_rst_n)
+        begin
+            colw_data_out   <= {(BIT_WIDTH*NO_COL_KERNEL){1'b0}};
+            col_export_done <= 1'b0;
+        end
+        else
+        begin
+            if (col_export_reg)
+            begin
+                col_export_done <= 1'b1;
+                colw_data_out   <= col_res_reg;
+            end
+            else
+            begin
+                colw_data_out   <= {(BIT_WIDTH*NO_COL_KERNEL){1'b0}};  
+                col_export_done <= 1'b0   ;       
+            end
+        end
+    end
+    
     //refresh fifo to load new channel  	
     always @(posedge i_clk, negedge i_rst_n) begin
       if(!i_rst_n) begin
-            for(i = 0; i < BIT_WIDTH; i = i+1) begin
+            for(i = 0; i < N_OF_PIXELS; i = i+1) begin
                 ram[i] <= 0;
             end
         end
         else begin
             if(i_flush) begin
-                for(i  = 0; i < BIT_WIDTH; i=i+1) begin
+                for(i  = 0; i < N_OF_PIXELS; i=i+1) begin
                     ram[i] <= 0;
                 end
             end

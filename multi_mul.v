@@ -35,7 +35,8 @@ module multi_mul
     input                                    i_enable_colw    ,
     input                                    i_enable_colip   ,
     output                                   o_ready          ,
-    output                                   o_start          
+    output                                   o_start          ,
+    output                                   o_init  
 );
     //this module is responsible to compute 
     //the single input feature pixel with the whole weight column
@@ -59,7 +60,8 @@ module multi_mul
                         .i_enable_colw   (i_enable_colw), //when weight fifo concat column done
                         .i_enable_colip  (i_enable_colip),
                         .o_ready         (o_ready),
-                        .o_start         (o_start)
+                        .o_start         (o_start), 
+                        .o_init          (o_init)
                         );
     end
     endgenerate
@@ -82,7 +84,7 @@ module multi_mul
                 cnt <= cnt + 1;
             end
             else begin
-                if(i_enable_colip || (cnt == NO_COL_KERNEL - 1)) begin
+                if(i_enable_colip || (cnt == NO_COL_KERNEL)) begin
                     cnt <= 0;
                 end
             end
