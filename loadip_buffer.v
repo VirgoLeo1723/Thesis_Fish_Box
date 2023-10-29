@@ -15,7 +15,7 @@ module loadip_buffer //pingpong buf
     output                      o_starved, //done
 
     //read side
-    output reg                  o_rd_ready, //done
+    output reg                     o_rd_ready, //done
     input                       i_rd_activate, //done
     output [DATA_WIDTH-1:0]     o_rdata, //done
     input                       i_rstrobe, //done
@@ -42,6 +42,7 @@ module loadip_buffer //pingpong buf
 
     //------------------------------------------------------//
     //read side
+   
     wire [ADDR_WIDTH:0]         rd_addr_out     ; //done
     reg  [ADDR_WIDTH-1:0]       rd_base_addr    ; //done
     reg                         rd_sel_ff       ; //done
@@ -50,7 +51,7 @@ module loadip_buffer //pingpong buf
     reg [1:0]                   rd_wait         ; //done
     reg [1:0]                   r_rd_act        ; //done
     reg [1:0]                   r_pre_activate  ; //done
-    reg [1:0]                   r_pre_read_wait ; //done
+    reg                         r_pre_read_wait ; //done
     reg [1:0]                   r_next_ff       ; //done
 
     reg                         rd_rst          ; //done
@@ -72,7 +73,8 @@ module loadip_buffer //pingpong buf
     assign o_starved = !o_rd_ready && !i_rd_activate;
 
     assign o_rdata = (r_pre_strobe) ? w_rdata : r_rdata;
-
+   
+  	
     blk_mem #(
         .BIT_WIDTH (DATA_WIDTH),
         .ADDR_WIDTH (ADDR_WIDTH+1)
@@ -87,7 +89,7 @@ module loadip_buffer //pingpong buf
     );
 
     always @(*) begin
-        if(!i_wr_activate & i_wstrobe) begin
+      if(i_wr_activate > 0 & i_wstrobe) begin
             wr_en = 1;
         end
         else begin
@@ -205,7 +207,7 @@ module loadip_buffer //pingpong buf
             end
             else begin
                 if(!wr_read_done[1]) begin
-                    wr_cnt[0] <= 0;
+                  wr_cnt[1] <= 0;
                 end
             end
         end
@@ -239,6 +241,7 @@ module loadip_buffer //pingpong buf
 
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
+            rd_ready <= 0;
             rd_sel_ff <= 0;
             o_rd_cnt <= 0;
             o_rd_ready <= 0;
@@ -247,7 +250,6 @@ module loadip_buffer //pingpong buf
             r_rd_act <= 0;
             r_pre_activate <= 0;
             r_pre_read_wait <= 0;
-            r_next_ff <= 0;
             r_next_ff <= 0;
             wr_read_done <= 2'b11;
         end
@@ -300,6 +302,7 @@ module loadip_buffer //pingpong buf
                 end
                 if(r_rd_act > 0) begin
                     o_rd_ready <= 0;
+                  $display($time);
                     rd_ready[rd_sel_ff] <= 0;
                 end
                 else begin
@@ -309,7 +312,9 @@ module loadip_buffer //pingpong buf
                         {r_rd_act, r_pre_activate} <= {r_pre_activate, 2'b0};
                     end
                     else begin
+                      if(!r_pre_read_wait) begin
                         r_pre_read_wait <= 1;
+                      end
                     end
                 end
                 if(i_rstrobe && (rd_base_addr < (rd_size[rd_sel_ff] + 1))) begin
@@ -322,40 +327,40 @@ module loadip_buffer //pingpong buf
                     end
                 end
             end
-            if(wr_read_ready[0] && !rd_ready[0] && !r_rd_act[0]) begin
+          if(!wr_read_ready[0] && !rd_ready[0] && !r_rd_act[0]) begin
                 rd_wait[0] <= 1; 
             end
-            if(wr_read_ready[1] && !rd_ready[1] && !r_rd_act[1]) begin
+          if(!wr_read_ready[1] && !rd_ready[1] && !r_rd_act[1]) begin
                 rd_wait[1] <= 1;
             end
             if(wr_read_ready > 0) begin
                 if(rd_wait[0] && wr_read_ready[0]) begin
                     if(wr_cnt[0] > 0) begin
-                        if(!r_rd_act[0] && !wr_read_ready[1]) begin
+                      if(r_rd_act == 0 && !wr_read_ready[1]) begin
                             r_next_ff <= 0;
                         end
                     end
-                    else begin
+                    //else begin
                         rd_size[0] <= wr_cnt[0];
                         rd_ready[0] <= 1;
                         rd_wait[0] <= 0;
                         wr_read_done[0] <= 0;
-                    end
+                    //end
                 end
                 if(rd_wait[1] && wr_read_ready[1]) begin
                     if(wr_cnt[1] > 0) begin
-                        if(!r_rd_act[1] && !wr_read_ready[0]) begin
+                        if(r_rd_act == 0 && !wr_read_ready[0]) begin
                             r_next_ff <= 1;
                         end
                     end
-                    else begin
+                    //else begin
                         rd_size[1] <= wr_cnt[1];
                         rd_ready[1] <= 1;
                         rd_wait[1] <= 0;
                         wr_read_done[1] <= 0;
-                    end
+                    //end
                 end
             end
         end
     end
-endmodule  
+endmodule 
