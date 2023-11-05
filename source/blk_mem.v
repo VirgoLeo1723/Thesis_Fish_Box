@@ -22,7 +22,7 @@
 
 module blk_mem 
 #(
-    parameter BIT_WIDTH = 8,
+    parameter BIT_WIDTH = 16,
     parameter ADDR_WIDTH = 4
 )
 (
@@ -42,9 +42,14 @@ reg [BIT_WIDTH-1:0] reg_rdata;
 
 assign rd_data = reg_rdata;
 
+integer loop_var;
+
 always @(posedge clk, negedge rst_n) begin
     if(!rst_n) begin
-        mem[addr_in] <= 0;
+        for (loop_var=0; loop_var<(1<<ADDR_WIDTH); loop_var=loop_var+1)
+        begin
+            mem[loop_var] <= 0;
+        end
     end
     else begin
         if(wr_en) begin

@@ -48,10 +48,13 @@ module multi_mul
 
     //wire [NO_COL_KERNEL-1:0] o_start; 
     //reg [2*BIT_WIDTH*NO_COL_INPUT_KERNEL-1:0] tmp_out_data;
-
+    
     generate
     for (i = 0; i < NO_COL_KERNEL ; i = i + 1) begin: MULTIPLIER
-        multiply u_multiply (
+        multiply #(
+                        .BIT_WIDTH(BIT_WIDTH)
+        )
+        u_multiply (
                         .i_clk           (i_clk)                                 ,
                         .i_rst_n         (i_rst_n)                               ,
                         .i_pix_weight    (i_weight_col[i*BIT_WIDTH +: BIT_WIDTH]),
@@ -65,14 +68,11 @@ module multi_mul
                         );
     end
     endgenerate
-
-
     //------------------------------------------------------------//
     //to count when process one column weight done
     //count until new input channel load in the return pointer -> 0
     //count until the last weight col --> loop back again --> ptr = 0
     //------------------------------------------------------------//
-
     always @(posedge i_clk, negedge i_rst_n)
     begin
         if(!i_rst_n)
@@ -80,7 +80,7 @@ module multi_mul
             cnt <= 0;
         end
         else begin
-            if(i_enable_colw) begin
+            if(i_enable_colw & i_enable_colip) begin
                 cnt <= cnt + 1;
             end
             else begin
