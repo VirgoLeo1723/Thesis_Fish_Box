@@ -1,23 +1,43 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 11/12/2023 07:31:19 AM
+// Design Name: 
+// Module Name: accumulator
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
 module accumulator #
 (
     parameter DATA_WIDTH = 32,
-    parameter N_CHANNEL = 8,
-    parameter CNT_WIDTH = $clog(N_CHANNEL)
+    parameter N_CHANNEL = 32,
+    parameter CNT_WIDTH = $clog2(32)
 )(
-    input clk,
-    input rst_n,
+    input i_clk,
+    input i_rst_n,
     input [DATA_WIDTH-1:0] data_in,
     input stop_accum, rec_accum,
     output [DATA_WIDTH-1:0] data_out,
-    output [CNT_WIDTH-1:0] current_no_channel
+    output [6:0] current_no_channel
 );
     
     reg [DATA_WIDTH-1:0] tmp_dat;
     reg [DATA_WIDTH-1:0] reg_data_o;
-    reg [CNT_WIDTH-1:0] cnt_accum;
+    reg [6:0] cnt_accum;
 
-    always @(posedge clk, negedge rst_n) begin
-        if(!rst_n) begin
+    always @(posedge i_clk, negedge i_rst_n) begin
+        if(!i_rst_n) begin
             tmp_dat <= 0;
             cnt_accum <= 0;
         end
@@ -26,14 +46,14 @@ module accumulator #
                 tmp_dat <= tmp_dat + data_in;
                 cnt_accum <= cnt_accum + 1;
             end
-            if(stop_accum) begin
+            else if(stop_accum) begin
                 cnt_accum <= 0;
             end
         end
     end
 
-    always @(posedge clk, negedge rst_n) begin
-        if(!rst_n) begin
+    always @(posedge i_clk, negedge i_rst_n) begin
+        if(!i_rst_n) begin
             reg_data_o <= 0;
         end
         else begin

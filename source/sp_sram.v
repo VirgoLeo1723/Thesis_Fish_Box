@@ -1,3 +1,25 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 11/11/2023 06:16:24 PM
+// Design Name: 
+// Module Name: sp_sram
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
 module sp_sram 
 # (
     parameter WIDTH  = 10,
@@ -5,7 +27,7 @@ module sp_sram
     parameter ADDRB  = $clog2(DEPTH)
 )
 (
-    input                   clk,
+    input                   i_clk,
     input                   ena,
     input                   wea,
     input                   rea,
@@ -27,23 +49,24 @@ reg     [WIDTH-1:0] mem [DEPTH-1:0];
 //===============================================================================
 // MODULE BODY
 //===============================================================================
-always @ (posedge clk)
+always @ (posedge i_clk)
 begin
     if (ena & rea) begin
         if (addr_o < DEPTH) begin
-            douta <= mem[addra];
+            douta <= mem[addr_o];
         end
     end
 end
 
-always @ (posedge clk)
+always @ (posedge i_clk)
 begin
     if (ena & wea) begin
+    
         if (addr_i < DEPTH) begin
-            mem[addra]    <= dina_0;
-            mem[addra+1]  <= dina_1;
-            mem[addra+2]  <= dina_2;
-            mem[addra+3]  <= dina_3;
+            mem[addr_i]  <= dina_0;
+            mem[addr_i+1]  <= dina_1;
+            mem[addr_i+2]  <= dina_2;
+            mem[addr_i+3]  <= dina_3;
         end
     end
 end
