@@ -36,7 +36,7 @@ module deconv_multi_kernel_top#(
         input                                       i_clk                   ,
         input                                       i_rst_n                 , 
         output [3:0]                                deconv_valid_o          ,
-        output [N_PIX_OUT*PIX_WIDTH*4-1:0]          deconv_col_result_o         ,
+        output [N_PIX_OUT*2*PIX_WIDTH*4-1:0]        deconv_col_result_o         ,
         // communicate direct with feature bram reader 
         input [PIX_WIDTH-1:0]                       feature_reader_data_out ,
         input                                       feature_reader_valid    ,
@@ -91,7 +91,7 @@ module deconv_multi_kernel_top#(
     
     loadip_buffer #(
         .DATA_WIDTH(PIX_WIDTH),
-        .ADDR_WIDTH(8)
+        .ADDR_WIDTH(SIZE_OF_FEATURE)
     )
     loadip_buffer_inst0(
     	.i_clk        (i_clk        ), 
@@ -121,11 +121,7 @@ module deconv_multi_kernel_top#(
                 .SIZE_OF_FEATURE        (SIZE_OF_FEATURE                                        ),                                                                      
                 .SIZE_OF_WEIGHT         (SIZE_OF_WEIGHT                                         ),                                                                      
                 .PIX_WIDTH              (PIX_WIDTH                                              ),                                                                      
-                .STRIDE                 (STRIDE                                                 ),                                                                      
-                .N_PIX_IN               (SIZE_OF_FEATURE*SIZE_OF_WEIGHT                         ),                                                     
-                .STRB_WIDTH             (2*PIX_WIDTH*N_PIX_IN/4                                 ),                                                      
-                .N_PIX_OUT              (SIZE_OF_FEATURE*SIZE_OF_WEIGHT - 
-                                        (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE-1)             )         
+                .STRIDE                 (STRIDE                                                 )         
             )
             deconv_op_top_inst (
                 .i_clk                  (i_clk                                                  ),
@@ -135,12 +131,11 @@ module deconv_multi_kernel_top#(
                 .i_weight_col           (op_top_weight_col[sub_core_index*
                                         (SIZE_OF_WEIGHT*PIX_WIDTH)+:SIZE_OF_WEIGHT*PIX_WIDTH]   ),
                 .i_feature_map_col      (op_top_feature_map_col                                 ),
-                .en_prcs_new_chnl       (op_top_weight_fifo_flush[sub_core_index*
-                                        (2*PIX_WIDTH*N_PIX_OUT)+:(2*PIX_WIDTH*N_PIX_OUT)]       ), 
+                .en_prcs_new_chnl       (op_top_weight_fifo_flush[sub_core_index]               ), 
                 .en_prcs_new_wcoln      (op_top_weight_fifo_rd_en[sub_core_index]               ),
                 .en_fifo_loop           (op_top_weight_fifo_loop[sub_core_index]                ),
                 .o_full_start           (op_top_full_start[sub_core_index]                      ),
-                .o_cmpl_deconv_col      (op_top_cmpl_deconv_col[sub_core_index]                 ), 
+                .o_cmpl_deconv_col      (op_top_cmpl_deconv_col[sub_core_index*(2*PIX_WIDTH*N_PIX_OUT)+:(2*PIX_WIDTH*N_PIX_OUT)]                 ), 
                 .o_valid                (op_top_valid[sub_core_index]                           ), 
                 .o_init                 (op_top_init[sub_core_index]                            )
             );
