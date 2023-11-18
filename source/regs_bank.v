@@ -1,4 +1,3 @@
-
 `timescale 1 ns / 1 ps
 
 	module regs_bank #
@@ -15,13 +14,19 @@
 	)
 	(
 		// Users to add ports here
-		output [C_S_AXI_DATA_WIDTH-1:0] img_tlsz_reg,         // reg0,
-        output [C_S_AXI_DATA_WIDTH-1:0] wgt_sz_reg,           // reg1
-        output [C_S_AXI_DATA_WIDTH-1:0] n_channel_reg,        // reg2
-		output [C_S_AXI_DATA_WIDTH-1:0] n_kernel_reg,         // reg3
-        output [C_S_AXI_DATA_WIDTH-1:0] ctrl_reg,             // reg4
-        input  [C_S_AXI_DATA_WIDTH-1:0] stt_reg,              // reg5
+        output [C_S_AXI_DATA_WIDTH-1:0] img_param_reg,        // reg0
+		output [C_S_AXI_DATA_WIDTH-1:0] weight_param_reg,     // reg1
+        output [C_S_AXI_DATA_WIDTH-1:0] ctrl_reg,             // reg2
+        input  [C_S_AXI_DATA_WIDTH-1:0] stt_reg,              // reg3
 
+        //CTRL_REG_START_CORE_IDX = 0
+        //CTRL_REG_STOP_CORE_IDX = 1
+        //CTRL_REG_CLEAR_CORE_IDX = 2 //software rst
+        //CTRL_REG_BRAM_VALID_IDX = 3
+        //CTRL_REG_READ_RES_CORE_IDX = 4
+        //CTRL_REG_BATCH_NORM_RELU_IDX = 5
+
+        //STT_REG_CORE_FIN = 0
 		// User ports ends
 		// Do not modify the ports beyond this line
 
@@ -659,9 +664,9 @@
 	        5'h00   : reg_data_out <= slv_reg0;
 	        5'h01   : reg_data_out <= slv_reg1;
 	        5'h02   : reg_data_out <= slv_reg2;
-	        5'h03   : reg_data_out <= slv_reg3;
+	        5'h03   : reg_data_out <= stt_reg;
 	        5'h04   : reg_data_out <= slv_reg4;
-	        5'h05   : reg_data_out <= stt_reg;
+	        5'h05   : reg_data_out <= slv_reg5;
 	        5'h06   : reg_data_out <= slv_reg6;
 	        5'h07   : reg_data_out <= slv_reg7;
 	        5'h08   : reg_data_out <= slv_reg8;
@@ -712,11 +717,10 @@
 	end    
 
 	// Add user logic here
-    assign img_tlsz_reg 	= slv_reg0;
-	assign wgt_sz_reg   	= slv_reg1;
-	assign n_channel_reg	= slv_reg2;
-    assign n_kernel_reg	    = slv_reg3;
-    assign ctrl_reg         = slv_reg4;
+    assign img_param_reg    = slv_reg0;
+    assign weight_param_reg = slv_reg1;
+    assign ctrl_reg         = slv_reg2;
+
 	// User logic ends
 
 	endmodule
