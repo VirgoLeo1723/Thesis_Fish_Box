@@ -179,7 +179,7 @@ module loadip_buffer //pingpong buf
                 wr_base_addr <= wr_base_addr + 1;
             end
             else begin
-                if(!i_wr_activate) begin
+                if(!i_wstrobe) begin
                     wr_base_addr <= 0;
                 end
             end
@@ -302,13 +302,13 @@ module loadip_buffer //pingpong buf
                 end
                 if(r_rd_act > 0) begin
                     o_rd_ready <= 0;
-                  $display($time);
+//                  $display($time);
                     rd_ready[rd_sel_ff] <= 0;
                 end
                 else begin
                     if(r_pre_read_wait) begin
                         r_rdata <= w_rdata;
-                        rd_base_addr <= rd_base_addr + 1;
+                        rd_base_addr <= rd_base_addr;
                         {r_rd_act, r_pre_activate} <= {r_pre_activate, 2'b0};
                     end
                     else begin
