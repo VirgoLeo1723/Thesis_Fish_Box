@@ -19,7 +19,9 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-`define  m_display(message)  $write("[%10t][%s]:  %s",$time, "Deconv_core_tb", message);
+`define  m_display(message)  $write("[%s]:  %s","Deconv_core_tb", message);
+`define  m_fdisplay(file_handle,message) $fwrite(file_handle,"[%10t][%s]:  %s",$time, "Deconv_core_tb", message);
+
 module deconv_core_check(
 
     );
@@ -36,7 +38,7 @@ module deconv_core_check(
     parameter N_PIX_OUT             = SIZE_OF_FEATURE*SIZE_OF_WEIGHT - 
                                     (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE-1);
                                     
-    parameter NUM_OF_CHANNEL_EACH_KERNEL = 1;
+    parameter NUM_OF_CHANNEL_EACH_KERNEL = 4;
                                     
     reg i_clk;
     reg i_rst_n;
@@ -63,6 +65,11 @@ module deconv_core_check(
     wire [BRAM_DATA_WIDTH-1:0]                  weight_bram_data_out  [0:3];
     wire [3:0]                                  weight_writer_finish       ;
     wire [SIZE_OF_GATHER_RESULT*PIX_WIDTH-1:0]  weight_bram_data_in        ;
+    
+    int feature[] = new [4];
+    int weight [] = new [4];   
+    int deconv [] = new [4];
+    
     initial
     begin
         i_clk = 1'b0;
@@ -75,14 +82,16 @@ module deconv_core_check(
         #2 i_rst_n = 1'b1;
     end
     
+    
     deconv_core#(
-        .SIZE_OF_GATHER_RESULT  (SIZE_OF_GATHER_RESULT  ),
-        .BRAM_DATA_WIDTH        (BRAM_DATA_WIDTH        ),                                                                         
-        .ADDRESS_WIDTH          (ADDRESS_WIDTH          ),                                                                         
-        .SIZE_OF_FEATURE        (SIZE_OF_FEATURE        ),                                                                         
-        .SIZE_OF_WEIGHT         (SIZE_OF_WEIGHT         ),                                                                         
-        .PIX_WIDTH              (PIX_WIDTH              ),                                                                         
-        .STRIDE                 (STRIDE                 )                                                                       
+        .SIZE_OF_GATHER_RESULT      (SIZE_OF_GATHER_RESULT      ),
+        .BRAM_DATA_WIDTH            (BRAM_DATA_WIDTH            ),                                                                         
+        .ADDRESS_WIDTH              (ADDRESS_WIDTH              ),                                                                         
+        .SIZE_OF_FEATURE            (SIZE_OF_FEATURE            ),                                                                         
+        .SIZE_OF_WEIGHT             (SIZE_OF_WEIGHT             ),                                                                         
+        .PIX_WIDTH                  (PIX_WIDTH                  ),                                                                         
+        .STRIDE                     (STRIDE                     ),
+        .NUM_OF_CHANNEL_EACH_KERNEL (NUM_OF_CHANNEL_EACH_KERNEL )                                                                
     )deconv_core_inst(
         .i_clk                  (i_clk                  ),
         .i_rst_n                (i_rst_n                ),
@@ -101,40 +110,49 @@ module deconv_core_check(
     task print_weight_channel( input bit [PIX_WIDTH-1:0] weight_fifo [0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1], input int channel_index);
         foreach (weight_fifo[fifo_index])
         begin
-            `m_display($sformatf("===== weight_kernel[%0d] channel[%0d]\n", fifo_index, channel_index))
+            `m_display($sformatf("===== Weight_kernel[%0d] channel[%0d]\n", fifo_index, channel_index))
+            `m_fdisplay(weight[fifo_index],$sformatf("===== Channel[%0d]\n", channel_index))
             for (int row=0; row<SIZE_OF_WEIGHT; row++)
             begin
                 for (int column=0; column<SIZE_OF_WEIGHT; column++)
                 begin
                     $write($sformatf("  %h  ", weight_fifo[fifo_index][row][column]));
+                    $fwrite(weight[fifo_index],$sformatf("%h ", weight_fifo[fifo_index][row][column]));
                 end 
                 $display("");
+                $fdisplay(weight[fifo_index],"");
             end
         end
     endtask : print_weight_channel
     
     task print_feature_channel( input bit [PIX_WIDTH-1:0] feature_fifo [0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1], input int channel_index);
         `m_display($sformatf("===== Feature input channel[%0d]\n", channel_index))
+        `m_fdisplay(feature[0],$sformatf("===== Feature input channel[%0d]\n", channel_index))
         for (int row=0; row<SIZE_OF_FEATURE; row++)
         begin
             for (int column=0; column<SIZE_OF_FEATURE; column++)
             begin
                 $write($sformatf("  %h  ", feature_fifo[row][column]));
+                $fwrite(feature[0], $sformatf("%h ", feature_fifo[row][column]));
             end 
             $display("");
+            $fdisplay(feature[0],"");
         end
     endtask : print_feature_channel
     
     task print_result_channel (input bit [2*PIX_WIDTH-1:0] result_channel[0:N_PIX_OUT-1][0:N_PIX_OUT-1], 
                                     input int kernel_index, input int channel_index);
         `m_display($sformatf("===== Deconv output kernel[%0d] channel[%0d] \n", kernel_index, channel_index))
+        `m_fdisplay(deconv[kernel_index], $sformatf("===== Deconv output channel[%0d] \n",channel_index))
         for (int row=0; row<N_PIX_OUT; row++)
         begin
             for (int column=0; column<N_PIX_OUT; column++)
             begin
                 $write($sformatf("  %h  ", result_channel[row][column]));
+                $fwrite(deconv[kernel_index],$sformatf("%h ", result_channel[row][column]));
             end 
             $display("");
+            $fdisplay(deconv[kernel_index], "");
         end
     endtask : print_result_channel
     
@@ -155,7 +173,14 @@ module deconv_core_check(
                 begin
                     for (int weight_column=0; weight_column<SIZE_OF_FEATURE; weight_column++)
                     begin
-                        result[feature_row*stride+weight_row][feature_column*stride+weight_column] = result[feature_row*stride+weight_row][feature_column*stride+weight_column] + feature_channel[feature_row][feature_column] * weight_channel[weight_row][weight_column];
+                        if ({1'b0,result[feature_row*stride+weight_row][feature_column*stride+weight_column]} + {1'b0,feature_channel[feature_row][feature_column] * weight_channel[weight_row][weight_column]} < 1<<32)
+                        begin
+                            result[feature_row*stride+weight_row][feature_column*stride+weight_column] = result[feature_row*stride+weight_row][feature_column*stride+weight_column] + feature_channel[feature_row][feature_column] * weight_channel[weight_row][weight_column];
+                        end
+                        else
+                        begin
+                            result[feature_row*stride+weight_row][feature_column*stride+weight_column] = ({1'b0,result[feature_row*stride+weight_row][feature_column*stride+weight_column]} + {1'b0,feature_channel[feature_row][feature_column] * weight_channel[weight_row][weight_column]}) >> 1;
+                        end
                     end 
                 end
             end    
@@ -164,19 +189,23 @@ module deconv_core_check(
     endtask : deconv_operation
     
     
-    bit [PIX_WIDTH-1:0] weight_channel [0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
+    bit [PIX_WIDTH-1:0] weight_channel[0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
     bit [PIX_WIDTH-1:0] weight_fifo[$][0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
-    bit [PIX_WIDTH-1:0] exe_weight_channel [0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
+    bit [PIX_WIDTH-1:0] weight_kernel[$][$][0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
 
+    bit [PIX_WIDTH-1:0] feature_channel[0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
+    bit [PIX_WIDTH-1:0] feature_fifo[$][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
+    bit [PIX_WIDTH-1:0] feature_kernel[$][$][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
+    
+    int weight_kernel_counter;
     int weight_channel_counter;
     int col_each_weight_channel;
     
-    bit [PIX_WIDTH-1:0] feature_channel[0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
-    bit [PIX_WIDTH-1:0] feature_fifo[$][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
-    bit [PIX_WIDTH-1:0] exe_feature_channel[0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
+    int feature_kernel_counter;
     int feature_channel_counter;
     int col_each_feature_channel;
     
+    int input_counter;
     bit done_deconv_operation;
     
     always @(posedge i_clk)
@@ -185,71 +214,97 @@ module deconv_core_check(
         begin
             for (int index=0; index<4; index++)
             begin
-                weight_channel[index][col_each_weight_channel/SIZE_OF_WEIGHT][col_each_weight_channel%SIZE_OF_WEIGHT] = weight_reader_data_out[index*PIX_WIDTH+:PIX_WIDTH];
+                weight_channel[index][col_each_weight_channel%SIZE_OF_WEIGHT][col_each_weight_channel/SIZE_OF_WEIGHT] = weight_reader_data_out[index*PIX_WIDTH+:PIX_WIDTH];
             end
             col_each_weight_channel ++;
             if (col_each_weight_channel == SIZE_OF_WEIGHT**2) 
             begin 
-                print_weight_channel(weight_channel, weight_channel_counter);
+                //print_weight_channel(weight_channel, weight_channel_counter);
                 col_each_weight_channel = 0;
                 weight_channel_counter ++;
+                
                 weight_fifo[$+1] = weight_channel;
-                if (weight_channel_counter % NUM_OF_CHANNEL_EACH_KERNEL==0) 
+                if (weight_channel_counter == NUM_OF_CHANNEL_EACH_KERNEL)
                 begin
-                    `m_display("----- Waiting for the feature map \n")
-                    fork
-                        begin
-                            wait (feature_channel_counter >= NUM_OF_CHANNEL_EACH_KERNEL);
-                            exe_weight_channel = weight_fifo.pop_front();
-                            exe_feature_channel = feature_fifo.pop_front();
-                            deconv_operation(exe_weight_channel[0], exe_feature_channel, 0, weight_channel_counter);
-                            deconv_operation(exe_weight_channel[1], exe_feature_channel, 1, weight_channel_counter);
-                            deconv_operation(exe_weight_channel[2], exe_feature_channel, 2, weight_channel_counter);
-                            deconv_operation(exe_weight_channel[3], exe_feature_channel, 3, weight_channel_counter);
-                            done_deconv_operation = 1'b1;
-                            wait (deconv_core_inst.tilling_machine_valid[0] );
-                            `m_display("----- tilling machine has valid result \n")
-                            repeat(4) @(posedge i_clk);
-                            `m_display($sformatf("---------- %h", deconv_core_inst.tilling_machine_out[0]))
-                       end
-                    join_none
+                    weight_kernel[$+1] = {weight_kernel[$+1],weight_fifo};
+                    weight_kernel_counter ++;
+                    weight_channel_counter = 0;
+                    weight_fifo={};
                 end
             end 
         end 
     end
-        
 
     always @(posedge i_clk)
     begin
      if (|feature_reader_valid)
         begin
-            feature_channel[0+col_each_feature_channel/(SIZE_OF_FEATURE/2)][0+col_each_feature_channel%(SIZE_OF_FEATURE/2)] = feature_reader_data_out[0*PIX_WIDTH+:PIX_WIDTH];
-            feature_channel[0+col_each_feature_channel/(SIZE_OF_FEATURE/2)][2+col_each_feature_channel%(SIZE_OF_FEATURE/2)] = feature_reader_data_out[1*PIX_WIDTH+:PIX_WIDTH];
-            feature_channel[2+col_each_feature_channel/(SIZE_OF_FEATURE/2)][0+col_each_feature_channel%(SIZE_OF_FEATURE/2)] = feature_reader_data_out[2*PIX_WIDTH+:PIX_WIDTH];
-            feature_channel[2+col_each_feature_channel/(SIZE_OF_FEATURE/2)][2+col_each_feature_channel%(SIZE_OF_FEATURE/2)] = feature_reader_data_out[3*PIX_WIDTH+:PIX_WIDTH];
+            feature_channel[0+col_each_feature_channel%(SIZE_OF_FEATURE/2)][0+col_each_feature_channel/(SIZE_OF_FEATURE/2)] = feature_reader_data_out[0*PIX_WIDTH+:PIX_WIDTH];
+            feature_channel[0+col_each_feature_channel%(SIZE_OF_FEATURE/2)][2+col_each_feature_channel/(SIZE_OF_FEATURE/2)] = feature_reader_data_out[1*PIX_WIDTH+:PIX_WIDTH];
+            feature_channel[2+col_each_feature_channel%(SIZE_OF_FEATURE/2)][0+col_each_feature_channel/(SIZE_OF_FEATURE/2)] = feature_reader_data_out[2*PIX_WIDTH+:PIX_WIDTH];
+            feature_channel[2+col_each_feature_channel%(SIZE_OF_FEATURE/2)][2+col_each_feature_channel/(SIZE_OF_FEATURE/2)] = feature_reader_data_out[3*PIX_WIDTH+:PIX_WIDTH];
 
             col_each_feature_channel ++;
             if (col_each_feature_channel == (SIZE_OF_FEATURE/2)*2) 
             begin 
-                print_feature_channel(feature_channel, feature_channel_counter);
+//                print_feature_channel(feature_channel, feature_channel_counter);
                 feature_channel_counter    ++;
                 col_each_feature_channel    = 0;
                 feature_fifo[$+1]           = feature_channel;
+                
                 if (feature_channel_counter >= NUM_OF_CHANNEL_EACH_KERNEL) 
                 begin
-                    fork
-                        begin
-                        wait (done_deconv_operation==1'b1);
-                        done_deconv_operation=1'b0;
-                        feature_channel_counter --;
-                        end 
-                    join_none
+                    feature_kernel[$+1] = {feature_kernel[$+1],feature_fifo};
+                    feature_kernel_counter ++;
+                    feature_channel_counter =0;
+                    feature_fifo = {};
                 end
            end 
         end 
-    
+
     end 
-   
+
+    initial
+    begin
+        foreach (feature[f_file_idx])
+        begin
+            feature[f_file_idx] = $fopen($sformatf("fishbox_feature_%0d.txt",f_file_idx),"w");
+            weight [f_file_idx] = $fopen($sformatf("fishbox_weight_%0d.txt",f_file_idx),"w");
+            deconv [f_file_idx] = $fopen($sformatf("fishbox_deconv_%0d.txt",f_file_idx),"w");
+        end
+        wait(weight_kernel_counter===4);
+        
+        foreach(weight_kernel[kernel_index,channel_index])
+        begin
+            print_weight_channel(weight_kernel[kernel_index][channel_index], channel_index);   
+        end
+        
+        foreach (feature_kernel[f_kernel_index])
+        begin
+            foreach (feature_kernel[f_kernel_index][f_channel_index])
+            begin
+                print_feature_channel(feature_kernel[f_kernel_index][f_channel_index], f_channel_index);         
+            end
+            foreach(weight_kernel[kernel_index])
+            begin
+                foreach (weight_kernel[kernel_index][channel_index])
+                begin
+                    print_weight_channel(weight_kernel[kernel_index][channel_index], channel_index);  
+                    deconv_operation(weight_kernel[kernel_index][channel_index][0], feature_kernel[f_kernel_index][channel_index],0,channel_index); 
+                    deconv_operation(weight_kernel[kernel_index][channel_index][1], feature_kernel[f_kernel_index][channel_index],1,channel_index); 
+                    deconv_operation(weight_kernel[kernel_index][channel_index][2], feature_kernel[f_kernel_index][channel_index],2,channel_index); 
+                    deconv_operation(weight_kernel[kernel_index][channel_index][3], feature_kernel[f_kernel_index][channel_index],3,channel_index); 
+                end
+            end
+        end
+        
+        foreach (feature[f_file_idx])
+        begin
+            $fclose(feature[f_file_idx]);
+            $fclose(weight[f_file_idx]);
+            $fclose(deconv[f_file_idx]);
+        end
+    end
     
     genvar weight_bram_index;
     generate 
@@ -278,8 +333,9 @@ module deconv_core_check(
             );
         end
     endgenerate
+    
     //====================================================================//
-    blk_mem_gen_1 weight_bram_1 (
+    blk_mem_gen_0 weight_bram_1 (
         .clka         (i_clk                ),
         .ena          (weight_bram_en       [0]),
         .wea          (weight_bram_we       [0]),
