@@ -73,12 +73,13 @@ module bram_controller #(
 
     wire [ADDRESS_WIDTH-1:0]    wrt_bram_wr_addr;
     wire [BRAM_DATA_WIDTH-1:0]  wrt_bram_wr_data;
+    wire [WRITER_DATA_IN_WIDTH-1:0] wrt_data_in ;
     wire                        wrt_bram_en     ;
     wire                        wrt_bram_we     ;
     
     assign rdr_bram_rd_data = bram_data_out;
     assign bram_addr        = rd_en_i ? rdr_bram_rd_addr : wr_en_i ? wrt_bram_wr_addr : {ADDRESS_WIDTH{1'b0}};
-    assign bran_data_in     = wrt_bram_wr_data;
+    assign bram_data_in     = wrt_bram_wr_data;
     assign bram_en          = (rdr_bram_en & rd_en_i) | (wrt_bram_en & wr_en_i);
     assign bram_we          = (rdr_bram_we & rd_en_i) | (wrt_bram_we & wr_en_i); 
 

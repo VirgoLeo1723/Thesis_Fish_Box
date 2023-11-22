@@ -61,7 +61,6 @@ end
 always @ (posedge i_clk)
 begin
     if (ena & wea) begin
-    
         if (addr_i < DEPTH) begin
             mem[addr_i]  <= dina_0;
             mem[addr_i+1]  <= dina_1;

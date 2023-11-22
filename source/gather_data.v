@@ -64,7 +64,7 @@ assign o_gather_valid = data_valid;
 
 //number of turns loading kernel from software to hardware for processing data
 //being careful
-
+    reg init =1'b1;
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
             cnt         <= 0;
@@ -76,6 +76,7 @@ assign o_gather_valid = data_valid;
                 cnt         <= cnt + 1;
                 start_addr  <= cnt << 2 ;
                 refresh_mem <= 1;
+                init <= 1'b0;
             end
             else begin
                 refresh_mem <= 0;
@@ -127,7 +128,8 @@ assign o_gather_valid = data_valid;
         end
     endgenerate
     
-    always @(posedge i_clk, negedge i_rst_n) begin
+    always @(posedge i_clk, negedge i_rst_n) 
+    begin
         if(!i_rst_n) begin
             o_kernel_data <= 0;
         end
@@ -144,7 +146,7 @@ assign o_gather_valid = data_valid;
             data_valid <= 0;
         end
         else begin
-            if(i_feature_writer_finish) begin
+            if((i_feature_writer_finish|first_trans) & (data_available_flag)) begin
                 data_valid <= 1;
             end
             else begin
@@ -159,8 +161,8 @@ assign o_gather_valid = data_valid;
             addr_request <= 0;  
         end
         else begin
-            if(first_trans & i_feature_writer_finish & data_available_flag) begin
-                addr_request <= 0;
+            if(first_trans  & data_available_flag) begin
+                addr_request <= addr_request + 1;
                 first_trans <= 0;
             end
             else begin
@@ -180,7 +182,7 @@ assign o_gather_valid = data_valid;
         .i_clk      (i_clk),
         .ena        (sram_en),
         .wea        (wr_en_sram),
-        .rea        (i_feature_writer_finish),
+        .rea        (i_feature_writer_finish|first_trans),
         .addr_i     (start_addr),
         .addr_o     (addr_request),
         .dina_0     (o_chan_0),
@@ -191,4 +193,3 @@ assign o_gather_valid = data_valid;
     );
 
 endmodule
-

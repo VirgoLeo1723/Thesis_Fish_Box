@@ -23,9 +23,9 @@
 // Code your design here
 module weight_fifo 
 #(
-    parameter BIT_WIDTH     = 8,
-    parameter NO_COL_KERNEL = 5,
-    parameter N_OF_PIXELS   = NO_COL_KERNEL * NO_COL_KERNEL //8*5*5 = 120 bits
+    parameter PIX_WIDTH     = 8,
+    parameter SIZE_OF_WEIGHT = 5,
+    parameter N_OF_PIXELS   = SIZE_OF_WEIGHT * SIZE_OF_WEIGHT //8*5*5 = 120 bits
 )
 (
     input i_clk                     ,
@@ -34,10 +34,11 @@ module weight_fifo
     input rd_en                     ,
     input loop_back                 ,
     input i_flush                   , 
-    input [BIT_WIDTH-1:0] data_in   ,
-    output reg [BIT_WIDTH*NO_COL_KERNEL-1:0] colw_data_out , //one column weight
+    input [PIX_WIDTH-1:0] data_in   ,
+    output reg [PIX_WIDTH*SIZE_OF_WEIGHT-1:0] colw_data_out , //one column weight
     output s_empty                  ,
     output s_full                   ,
+    output s_pre_full               ,
     output reg col_export_done      ,                   //connect with i_enable signal of multiply module
     output reg request_data	        ,
     output reg flush_fin			,
@@ -47,11 +48,11 @@ module weight_fifo
 
 //  	localparam FIFO_DEPTH = $clog2(N_OF_PIXELS);
     // LOCAL VARIABLES//
-    reg [BIT_WIDTH-1:0] ram [0:N_OF_PIXELS-1];
-    reg [BIT_WIDTH:0]   wr_pt, rd_pt          ;
-    reg [BIT_WIDTH-1:0] tmp_data_out        ;
+    reg [PIX_WIDTH-1:0] ram [0:N_OF_PIXELS-1];
+    reg [PIX_WIDTH:0]   wr_pt, rd_pt          ;
+    reg [PIX_WIDTH-1:0] tmp_data_out        ;
     reg col_export_reg                      ;
-    reg [2:0] cnt_concat                    ;
+    reg [5:0] cnt_concat                    ;
     wire re_fifo, we_fifo                   ;
     wire fifo_idle                          ;
     wire threshold                          ;
@@ -62,8 +63,9 @@ module weight_fifo
     assign re_fifo = !s_empty & rd_en;
     assign we_fifo = !s_full & wr_en ;
 
-//    assign s_full = {~wr_pt[BIT_WIDTH], wr_pt[BIT_WIDTH-1:0]} == rd_pt;
     assign s_full  = wr_pt == N_OF_PIXELS;
+    assign s_pre_full = wr_pt >= N_OF_PIXELS - 1;
+    
     assign s_empty = wr_pt == rd_pt;
     assign fifo_idle = !s_full & !s_empty;
 
@@ -73,11 +75,11 @@ module weight_fifo
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
             wr_pt <= 0;
-            ram[wr_pt[BIT_WIDTH-1:0]] <= 0; 
+            ram[wr_pt[PIX_WIDTH-1:0]] <= 0; 
         end
         else begin
             if(we_fifo) begin
-                ram[wr_pt[BIT_WIDTH-1:0]] <= data_in;
+                ram[wr_pt[PIX_WIDTH-1:0]] <= data_in;
                 wr_pt <= wr_pt + 1;
             end
           	else begin
@@ -90,13 +92,13 @@ module weight_fifo
     
     always @(posedge i_clk, negedge i_rst_n)
     begin
-        if (!i_rst_n)
+        if (!i_rst_n || i_flush)
         begin
             core_init <= 1'b1;
         end
         else
         begin
-            if (cnt_concat == NO_COL_KERNEL-1)
+            if (cnt_concat == SIZE_OF_WEIGHT-1)
             begin
                 core_init <= 1'b0;
             end
@@ -114,11 +116,11 @@ module weight_fifo
         end
         else begin
             if(re_fifo) begin
-                tmp_data_out <= ram[rd_pt[BIT_WIDTH-1:0]];
+                tmp_data_out <= ram[rd_pt[PIX_WIDTH-1:0]];
             end
             else begin
                 if(threshold & loop_back) begin
-                    tmp_data_out <= ram[rd_pt[BIT_WIDTH-1:0]];
+                    tmp_data_out <= ram[rd_pt[PIX_WIDTH-1:0]];
                 end
             end
         end
@@ -151,13 +153,13 @@ module weight_fifo
         end
     end
   
-  	reg [BIT_WIDTH*NO_COL_KERNEL-1:0] col_res_reg;
+  	reg [PIX_WIDTH*SIZE_OF_WEIGHT-1:0] col_res_reg;
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
             col_res_reg <= 0;
         end
         else begin
-            col_res_reg <= {col_res_reg[BIT_WIDTH*(NO_COL_KERNEL-1)-1:0], tmp_data_out};
+            col_res_reg <= {tmp_data_out, col_res_reg[PIX_WIDTH+:PIX_WIDTH*(SIZE_OF_WEIGHT-1)]};
         end
     end
 
@@ -175,7 +177,7 @@ module weight_fifo
         else begin
           	if(re_fifo) 
           	begin 
-                if(cnt_concat == NO_COL_KERNEL) 
+                if(cnt_concat == SIZE_OF_WEIGHT) 
                 begin
                     cnt_concat <= 0;
                     col_export_reg <= 1; 
@@ -188,7 +190,7 @@ module weight_fifo
             end
             else 
             begin
-                if((cnt_concat == NO_COL_KERNEL)) 
+                if((cnt_concat == SIZE_OF_WEIGHT)) 
                 begin
                     col_export_reg <= 1'b1;
                     cnt_concat     <= 0;
@@ -205,7 +207,7 @@ module weight_fifo
     begin
         if (!i_rst_n)
         begin
-            colw_data_out   <= {(BIT_WIDTH*NO_COL_KERNEL){1'b0}};
+            colw_data_out   <= {(PIX_WIDTH*SIZE_OF_WEIGHT){1'b0}};
             col_export_done <= 1'b0;
         end
         else
@@ -217,7 +219,7 @@ module weight_fifo
             end
             else
             begin
-                colw_data_out   <= {(BIT_WIDTH*NO_COL_KERNEL){1'b0}};  
+                colw_data_out   <= {(PIX_WIDTH*SIZE_OF_WEIGHT){1'b0}};  
                 col_export_done <= 1'b0   ;       
             end
         end

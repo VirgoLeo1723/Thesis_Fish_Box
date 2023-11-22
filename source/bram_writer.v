@@ -42,6 +42,7 @@ module bram_writer #(
     assign bram_we = 1'b1;
 
     reg [DATA_IN_WIDTH-1:0] result_data;
+    reg                     save_enable;
     integer counter;
 
     always @(posedge clk_i, negedge rst_i)
@@ -52,41 +53,43 @@ module bram_writer #(
             data_o      <= {DATA_OUT_WIDTH{1'b0}};
             result_data <= {DATA_IN_WIDTH{1'b0}};
             finish_o    <= 1'b0;
+            save_enable <= 1'b0;
         end
         else
         begin
-            if (en_i)
+//            if (en_i)
+                        finish_o                <= 1'b0;
+
             begin
                 if (valid_i)
                 begin
+                    save_enable <= en_i;
                     result_data <= data_i;
-                    counter     <= 0 ;
+                    counter     <= DATA_IN_WIDTH/DATA_OUT_WIDTH;
                     data_o      <= {DATA_OUT_WIDTH{1'b0}};
                     finish_o    <= 1'b0;
                 end   
                 else
                 begin
-                    if (counter < DATA_IN_WIDTH/DATA_OUT_WIDTH)
+                    if (counter >= 0 && save_enable)
                     begin
                         bram_addr               <= bram_addr + 1; 
-                        counter                 <= counter + 1;
-                        finish_o                <= 1'b0;
+                        counter                 <= counter - 1;
                         {result_data, data_o}   <= {{DATA_OUT_WIDTH{1'b0}},result_data};
                     end
                     else
-                    begin
-                        counter     <= 0;
+                    begin if (save_enable)
                         finish_o    <= 1'b1;
+                        save_enable <= 1'b0;
                     end
                 end
             end
-            else
-            begin
-                bram_addr   <= RESULT_BASED_ADDRESS;
-                data_o      <= {DATA_OUT_WIDTH{1'b0}};
-                result_data <= {DATA_IN_WIDTH{1'b0}};
-            end
+//            else
+//            begin
+//                bram_addr   <= RESULT_BASED_ADDRESS;
+//                data_o      <= {DATA_OUT_WIDTH{1'b0}};
+//                result_data <= {DATA_IN_WIDTH{1'b0}};
+//            end
         end
     end
 endmodule
-

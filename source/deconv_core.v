@@ -19,7 +19,7 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-(* use_dsp = "yes" *)
+
 module deconv_core #(
         parameter SIZE_OF_GATHER_RESULT = 512,
         parameter BRAM_DATA_WIDTH       = 32 ,                                                                          
@@ -36,19 +36,18 @@ module deconv_core #(
         parameter SIZE_OF_PRSC_INPUT        = STRIDE* (SIZE_OF_FEATURE/2-1) + SIZE_OF_WEIGHT,
         parameter SIZE_OF_PRSC_OUTPUT       = 2*SIZE_OF_PRSC_INPUT - (SIZE_OF_PRSC_INPUT-NON_OVERLAPPED_CONST)
     )(
-        input                                   i_clk                                      ,
-        input                                   i_rst_n                                    ,
-        output  [3:0]                           weight_reader_en                           ,
-        input   [3:0]                           weight_reader_valid                        ,
-        input   [PIX_WIDTH*4-1:0]               weight_reader_data_out                     ,
-        
-        output  [3:0]                           feature_writer_en                          ,
-        output  [3:0]                           feature_writer_valid                       ,
-        output  [SIZE_OF_GATHER_RESULT*4-1:0]   feature_writer_data_in                     ,
-        input   [3:0]                           feature_writer_finish                      ,
-        output  [3:0]                           feature_reader_en                          ,
-        input   [3:0]                           feature_reader_valid                       ,
-        input   [PIX_WIDTH*4-1:0]               feature_reader_data_out 
+        input                                               i_clk                                      ,
+        input                                               i_rst_n                                    ,
+        output  [3:0]                                       weight_reader_en                           ,
+        input   [3:0]                                       weight_reader_valid                        ,
+        input   [PIX_WIDTH*4-1:0]                           weight_reader_data_out                     ,       
+        output  [3:0]                                       feature_writer_en                          ,
+        output  [3:0]                                       feature_writer_valid                       ,
+        output  [(SIZE_OF_PRSC_OUTPUT**2)*2*PIX_WIDTH-1:0]   feature_writer_data_in                     ,
+        input   [3:0]                                       feature_writer_finish                      ,
+        output  [3:0]                                       feature_reader_en                          ,
+        input   [3:0]                                       feature_reader_valid                       ,
+        input   [PIX_WIDTH*4-1:0]                           feature_reader_data_out 
     );
 
     wire [ADDRESS_WIDTH-1:0]                    feature_bram_addr                          ;      
@@ -99,13 +98,20 @@ module deconv_core #(
     wire [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*    PIX_WIDTH-1:0]            tilling_machine_out  [0:3];
     wire [3:0]                                                          tilling_machine_valid     ;
    
-    wire [(SIZE_OF_PRSC_OUTPUT/2)*(SIZE_OF_FEATURE/2)*2*PIX_WIDTH-1:0]  data_gather_data_out      ;
+    wire [(SIZE_OF_PRSC_OUTPUT/2)*(SIZE_OF_FEATURE/2)*2*PIX_WIDTH-1:0]  data_gather_data_out  [3:0]    ;
     wire [3:0]                                                          data_gather_valid_out     ;
     
 
     assign feature_writer_valid                         = data_gather_valid_out                 ;  
     assign feature_writer_en                            = data_gather_valid_out                 ;  
+    assign feature_writer_data_in                       = {
+                                                            data_gather_data_out[3],
+                                                            data_gather_data_out[2],
+                                                            data_gather_data_out[1],
+                                                            data_gather_data_out[0]
+                                                        };
     assign feature_reader_en                            = deconv_multi_kernel_feature_reader_en ;
+
 
     assign deconv_multi_kernel_feature_reader_data_out  = feature_reader_data_out               ;
     assign deconv_multi_kernel_feature_reader_valid     = feature_reader_valid                  ;    
@@ -206,6 +212,7 @@ module deconv_core #(
     
     // generate core overlap processor
     genvar kernel_index;
+    genvar sub_kernel_index;
     generate
         for (kernel_index=0; kernel_index<4; kernel_index = kernel_index + 1)
         begin            
@@ -229,17 +236,15 @@ module deconv_core #(
                 .valid_o                    (core_overlap_valid_out[kernel_index]                                                     ),
                 .overlapped_column_o        (core_overlap_result[kernel_index]                                                         )                                                             
             );
-   
+            
             // tilling machine
             tilling_machine  #(
-                .SIZE_OF_EACH_CORE_INPUT    (2                                    ),
-                .SIZE_OF_EACH_KERNEL        (SIZE_OF_WEIGHT                       ),
-                .STRIDE                     (STRIDE                               ),
-                .PIX_WIDTH                  (PIX_WIDTH                            )
+                .SIZE_OF_INPUT              (SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH      ),
+                .SIZE_OF_FEATURE            (SIZE_OF_PRSC_OUTPUT                  )
             )tilling_machine_inst(
                 .clk_i                      (i_clk                                ),
                 .rst_i                      (i_rst_n                              ),         
-                .overlapped_column_core_i   (core_overlap_result   [kernel_index] ),
+                .overlapped_column_core_i   (core_overlap_result[kernel_index]    ),
                 .valid_data_core_i          (core_overlap_valid_out[kernel_index] ),
                 .tilling_machine_o          (tilling_machine_out   [kernel_index] ),
                 .tilling_machine_valid_o    (tilling_machine_valid [kernel_index] )
@@ -248,14 +253,19 @@ module deconv_core #(
             // gather data    
             data_gather #(
                 .DATA_WIDTH                 (SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH),
-                .NO_OF_KERNEL               (16),
+                .NO_OF_KERNEL               (4),
                 .N_CHANNEL_EACH_KERNEL      (4),
                 .NO_TURN_WIDTH              ($clog2(16/4))
             )
             data_gather_inst(
                 .i_clk                      (i_clk                                       ),
                 .i_rst_n                    (i_rst_n                                     ),
-                .i_tilling_machine_out      (tilling_machine_out   [kernel_index]        ),
+                .i_tilling_machine_out      ({
+                                                tilling_machine_out   [3][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH],
+                                                tilling_machine_out   [2][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH],
+                                                tilling_machine_out   [1][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH],
+                                                tilling_machine_out   [0][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH]                                                    
+                                            }),
                 .i_valid_coming             (tilling_machine_valid [kernel_index]        ),
                 .i_feature_writer_finish    (feature_writer_finish [kernel_index]        ),
                 .o_gather_out               (data_gather_data_out  [kernel_index]        ),
