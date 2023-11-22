@@ -19,7 +19,7 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-
+(* use_dsp = "yes" *)
 module deconv_core #(
         parameter SIZE_OF_GATHER_RESULT = 512,
         parameter BRAM_DATA_WIDTH       = 32 ,                                                                          
@@ -169,12 +169,15 @@ module deconv_core #(
                                                           weight_fifo_core_init[weight_fifo_index]                    ;                                             
         end
     endgenerate
-   
+    
     // generate deconvolution core
+    initial             $display("%m");
+
     genvar core_index;
     generate
+    begin
         for (core_index=0; core_index<4; core_index=core_index+1)
-        begin
+        begin: DECONV_MULTI
             deconv_multi_kernel_top#(
                 .BRAM_DATA_WIDTH            (BRAM_DATA_WIDTH           ),                                                                          
                 .ADDRESS_WIDTH              (ADDRESS_WIDTH             ),                                                                          
@@ -182,7 +185,7 @@ module deconv_core #(
                 .SIZE_OF_WEIGHT             (SIZE_OF_WEIGHT            ),                                                                          
                 .PIX_WIDTH                  (PIX_WIDTH                 ),                                                                          
                 .STRIDE                     (STRIDE                    )                                                                          
-            )deconv_multi_kernel_top_inst(
+            ) inst(
                 .i_clk                      (i_clk                                                                       ),
                 .i_rst_n                    (i_rst_n                                                                     ),  
                 .feature_reader_data_out    (deconv_multi_kernel_feature_reader_data_out[core_index*PIX_WIDTH+:PIX_WIDTH]),
@@ -198,6 +201,7 @@ module deconv_core #(
                 .deconv_col_result_o        (deconv_multi_kernel_col_result[core_index]                                  )
             );   
         end
+    end
     endgenerate
     
     // generate core overlap processor
@@ -228,8 +232,10 @@ module deconv_core #(
    
             // tilling machine
             tilling_machine  #(
-                .SIZE_OF_INPUT              (SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH      ),
-                .SIZE_OF_FEATURE            (SIZE_OF_PRSC_OUTPUT                  )
+                .SIZE_OF_EACH_CORE_INPUT    (2                                    ),
+                .SIZE_OF_EACH_KERNEL        (SIZE_OF_WEIGHT                       ),
+                .STRIDE                     (STRIDE                               ),
+                .PIX_WIDTH                  (PIX_WIDTH                            )
             )tilling_machine_inst(
                 .clk_i                      (i_clk                                ),
                 .rst_i                      (i_rst_n                              ),         
@@ -243,7 +249,7 @@ module deconv_core #(
             data_gather #(
                 .DATA_WIDTH                 (SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH),
                 .NO_OF_KERNEL               (16),
-                .N_CHANNEL_EACH_KERNEL      (32),
+                .N_CHANNEL_EACH_KERNEL      (4),
                 .NO_TURN_WIDTH              ($clog2(16/4))
             )
             data_gather_inst(
