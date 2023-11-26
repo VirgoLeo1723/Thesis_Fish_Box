@@ -37,21 +37,25 @@ module deconv_core_check(
     parameter STRB_WIDTH            = 2*PIX_WIDTH*N_PIX_IN/4 ;                                                      
     parameter N_PIX_OUT             = SIZE_OF_FEATURE*SIZE_OF_WEIGHT - 
                                     (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE-1);
-                                    
+    parameter NON_OVERLAPPED_CONST      = (SIZE_OF_FEATURE/2) * STRIDE;
+    parameter SIZE_OF_PRSC_INPUT        = STRIDE* (SIZE_OF_FEATURE/2-1) + SIZE_OF_WEIGHT;
+    parameter SIZE_OF_PRSC_OUTPUT       = 2*SIZE_OF_PRSC_INPUT - (SIZE_OF_PRSC_INPUT-NON_OVERLAPPED_CONST);
     parameter NUM_OF_CHANNEL_EACH_KERNEL = 4;
                                     
     reg i_clk;
     reg i_rst_n;
     
-    wire [3:0]                                  weight_reader_en           ;       
-    wire [3:0]                                  weight_reader_valid        ;    
-    wire [PIX_WIDTH*4-1:0]                      weight_reader_data_out     ; 
-    wire [3:0]                                  feature_reader_en          ;      
-    wire [3:0]                                  feature_reader_valid       ;   
-    wire [PIX_WIDTH*4-1:0]                      feature_reader_data_out    ;
-    wire [3:0]                                  feature_writer_valid       ;   
-    wire [3:0]                                  feature_writer_data_in     ; 
-    wire [3:0]                                  feature_writer_finish      ;
+    wire [3:0]                                      weight_reader_en           ;       
+    wire [3:0]                                      weight_reader_valid        ;    
+    wire [PIX_WIDTH*4-1:0]                          weight_reader_data_out     ; 
+    wire [3:0]                                      feature_reader_en          ;      
+    wire [3:0]                                      feature_reader_valid       ;   
+    wire [PIX_WIDTH*4-1:0]                          feature_reader_data_out    ;
+    wire [3:0]                                      feature_writer_en          ;
+    wire [3:0]                                      feature_writer_valid       ;   
+    wire [(SIZE_OF_PRSC_OUTPUT**2)*2*PIX_WIDTH-1:0] feature_writer_data_in     ; 
+    wire [3:0]                                      feature_writer_finish      ;
+    wire [3:0]                                      feature_writer_transfer_ready;
     
     wire [ADDRESS_WIDTH-1:0]                    feature_bram_addr     [0:3];      
     wire [3:0]                                  feature_bram_en            ;
@@ -66,10 +70,11 @@ module deconv_core_check(
     wire [3:0]                                  weight_writer_finish       ;
     wire [SIZE_OF_GATHER_RESULT*PIX_WIDTH-1:0]  weight_bram_data_in        ;
     
-    int feature[] = new [4];
+    int feature;
     int weight [] = new [4];   
     int deconv [] = new [4];
-    int result;    
+    int result [] = new [4];    
+    int actual_result [] = new [4];
     
     initial
     begin
@@ -94,21 +99,26 @@ module deconv_core_check(
         .STRIDE                     (STRIDE                     ),
         .NUM_OF_CHANNEL_EACH_KERNEL (NUM_OF_CHANNEL_EACH_KERNEL )                                                                
     )deconv_core_inst(
-        .i_clk                  (i_clk                  ),
-        .i_rst_n                (i_rst_n                ),
-        .weight_reader_en       (weight_reader_en       ),
-        .weight_reader_valid    (weight_reader_valid    ),
-        .weight_reader_data_out (weight_reader_data_out ),
-        .feature_reader_en      (feature_reader_en      ),
-        .feature_reader_valid   (feature_reader_valid   ),
-        .feature_reader_data_out(feature_reader_data_out),
-        .feature_writer_en      (feature_writer_en      ),
-        .feature_writer_valid   (feature_writer_valid   ),
-        .feature_writer_data_in (feature_writer_data_in ),
-        .feature_writer_finish  (feature_writer_finish  )
+        .i_clk                          (i_clk                          ),
+        .i_rst_n                        (i_rst_n                        ),
+        .weight_reader_en               (weight_reader_en               ),
+        .weight_reader_valid            (weight_reader_valid            ),
+        .weight_reader_data_out         (weight_reader_data_out         ),
+        .feature_reader_en              (feature_reader_en              ),
+        .feature_reader_valid           (feature_reader_valid           ),
+        .feature_reader_data_out        (feature_reader_data_out        ),
+        .feature_writer_en              (feature_writer_en              ),
+        .feature_writer_valid           (feature_writer_valid           ),
+        .feature_writer_transfer_ready  (feature_writer_transfer_ready  ),
+        .feature_writer_data_in         (feature_writer_data_in         ),
+        .feature_writer_finish          (feature_writer_finish          )
     );
         
-    task print_weight_channel( input bit [PIX_WIDTH-1:0] weight_fifo [0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1], input int channel_index);
+    task print_weight_channel( 
+                                input bit [PIX_WIDTH-1:0] weight_fifo [0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1], 
+                                input int kernel_index,
+                                input int channel_index
+                             );
         foreach (weight_fifo[fifo_index])
         begin
             `m_display($sformatf("===== Weight_kernel[%0d] channel[%0d]\n", fifo_index, channel_index))
@@ -126,24 +136,31 @@ module deconv_core_check(
         end
     endtask : print_weight_channel
     
-    task print_feature_channel( input bit [PIX_WIDTH-1:0] feature_fifo [0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1], input int channel_index);
-        `m_display($sformatf("===== Feature input channel[%0d]\n", channel_index))
-        `m_fdisplay(feature[0],$sformatf("===== Feature input channel[%0d]\n", channel_index))
-        for (int row=0; row<SIZE_OF_FEATURE; row++)
+    task print_feature_channel( 
+                                input bit [PIX_WIDTH-1:0] feature_input [0:3][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1], 
+                                input int kernel_index
+                              );
+        foreach (feature_input[channel_index])
         begin
-            for (int column=0; column<SIZE_OF_FEATURE; column++)
+            `m_display($sformatf("===== Feature [%0d] input channel[%0d]\n", kernel_index, channel_index))
+            `m_fdisplay(feature,$sformatf("===== Feature [%0d] input channel[%0d]\n", kernel_index, channel_index))
+            for (int row=0; row<SIZE_OF_FEATURE; row++)
             begin
-                $write($sformatf("  %h  ", feature_fifo[row][column]));
-                $fwrite(feature[0], $sformatf("%h ", feature_fifo[row][column]));
-            end 
-            $display("");
-            $fdisplay(feature[0],"");
+                for (int column=0; column<SIZE_OF_FEATURE; column++)
+                begin
+                    $write($sformatf("  %h  ", feature_input[channel_index][row][column]));
+                    $fwrite(feature, $sformatf("%h ", feature_input[channel_index][row][column]));
+                end 
+                $display("");
+                $fdisplay(feature,"");
+            end
         end
     endtask : print_feature_channel
     
     task print_result_channel (     
                                     input bit [2*PIX_WIDTH-1:0] result_channel[0:N_PIX_OUT-1][0:N_PIX_OUT-1], 
-                                    input int kernel_index, input int channel_index, input int file_handle);
+                                    input int kernel_index, input int channel_index, input int file_handle
+                               );
         `m_display($sformatf("===== Deconv output kernel[%0d] channel[%0d] \n", kernel_index, channel_index))
         `m_fdisplay(file_handle, $sformatf("===== Deconv output channel[%0d] \n",channel_index))
         for (int row=0; row<N_PIX_OUT; row++)
@@ -158,15 +175,22 @@ module deconv_core_check(
         end
     endtask : print_result_channel
     
+    // Function: calculate reference deconvolution operation result
     task deconv_operation(
-                            input bit [PIX_WIDTH-1:0] weight_channel [0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1],
-                            input bit [PIX_WIDTH-1:0] feature_channel[0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1],
-                            output bit[2*PIX_WIDTH-1:0] deconv_channel [0:N_PIX_OUT-1][0:N_PIX_OUT-1],
+                            input bit [PIX_WIDTH-1:0]   weight_channel  [0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1],
+                            input bit [PIX_WIDTH-1:0]   feature_channel [0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1],
+                            output bit[2*PIX_WIDTH-1:0] deconv_result   [0:N_PIX_OUT-1][0:N_PIX_OUT-1],
                             input int kernel_index, 
                             inout int channel_index,
                             input int stride=1
                          );
+        automatic bit [2*PIX_WIDTH-1:0] deconv_channel [0:N_PIX_OUT-1][0:N_PIX_OUT-1];
+        begin
         localparam SIZE_OF_OUTPUT = N_PIX_OUT;
+        $displayh("weight=%p",weight_channel);
+        $displayh("feature=%p", feature_channel);
+        
+            
         for (int feature_row=0; feature_row<SIZE_OF_FEATURE; feature_row++)
         begin
             for (int feature_column=0; feature_column<SIZE_OF_FEATURE; feature_column++)
@@ -187,17 +211,39 @@ module deconv_core_check(
                 end
             end    
         end
+        $displayh("result=%p", deconv_channel);
+        deconv_result = deconv_channel;
         print_result_channel(deconv_channel, kernel_index, channel_index, deconv[kernel_index]);
+        end
     endtask : deconv_operation
     
-    task gather_data_each_kernel (input bit [2*PIX_WIDTH-1:0]deconv_kernel_result[0:3][0:N_PIX_OUT-1][0:N_PIX_OUT-1]);
-        bit [2*PIX_WIDTH-1:0] kernel_result [0:N_PIX_OUT-1][0:N_PIX_OUT-1];
-        foreach (deconv_kernel_result[channel_index,row,column])
+    // Function: calculate reference gather data each kernel
+    task gather_data_each_kernel (
+                                    input bit [2*PIX_WIDTH-1:0]deconv_kernel_result[0:3][0:N_PIX_OUT-1][0:N_PIX_OUT-1],
+                                    input int weight_bram_index,
+                                    input int kernel_index   
+                                 );
+        automatic bit [2*PIX_WIDTH-1:0] kernel_result [0:N_PIX_OUT-1][0:N_PIX_OUT-1];
         begin
-            kernel_result[row][column] = kernel_result[row][column] + deconv_kernel_result[channel_index][row][column];
+            foreach (deconv_kernel_result[channel_index,row,column])
+            begin
+                kernel_result[row][column] = kernel_result[row][column] + deconv_kernel_result[channel_index][row][column];
+            end
+            print_result_channel(kernel_result, 0, kernel_index, result[weight_bram_index]);
         end
-        print_result_channel(kernel_result, 0, 0, result);
     endtask : gather_data_each_kernel
+    
+    task assign_data_gather_kernel_value(
+                                            inout bit actual_data_gather_result[0:5][0:5], 
+                                            input bit [(SIZE_OF_PRSC_OUTPUT/2)**2*(2*PIX_WIDTH)-1:0] sub_result, 
+                                            input int index
+                                         );
+        begin
+            for (int row=0; row<3; row ++)
+                for (int col=0; col<3; col++)
+                    actual_data_gather_result[index/2*3+row][index%2*3+col] = sub_result[row][col];
+        end
+    endtask: assign_data_gather_kernel_value
     
     bit [PIX_WIDTH-1:0] weight_channel[0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
     bit [PIX_WIDTH-1:0] weight_fifo[$][0:3][0:SIZE_OF_WEIGHT-1][0:SIZE_OF_WEIGHT-1];
@@ -207,8 +253,11 @@ module deconv_core_check(
     bit [PIX_WIDTH-1:0] feature_fifo[$][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
     bit [PIX_WIDTH-1:0] feature_kernel[$][$][0:SIZE_OF_FEATURE-1][0:SIZE_OF_FEATURE-1];
     
-    bit [2*PIX_WIDTH-1:0] deconv_channel[$][0:3][0:5][0:5];
+    bit [2*PIX_WIDTH-1:0] ref_deconv_result_kernel[0:3][0:3][0:NUM_OF_CHANNEL_EACH_KERNEL-1][0:5][0:5];
     bit [2*PIX_WIDTH-1:0] deconv_result[0:5][0:5];
+    
+    bit [2*PIX_WIDTH-1:0] actual_data_gather_result_kernel[$][0:5][0:5];
+    bit [2*PIX_WIDTH-1:0] actual_data_gather_result[0:5][0:5];
     
     int weight_kernel_counter;
     int weight_channel_counter;
@@ -221,6 +270,7 @@ module deconv_core_check(
     int input_counter;
     bit done_deconv_operation;
     
+    // Collect weight
     always @(posedge i_clk)
     begin
         if (|weight_reader_valid)
@@ -248,6 +298,7 @@ module deconv_core_check(
         end 
     end
 
+    // Collect feature input
     always @(posedge i_clk)
     begin
      if (|feature_reader_valid)
@@ -273,59 +324,108 @@ module deconv_core_check(
                 end
            end 
         end 
-
     end 
 
-    
-
+    int counter = 0;
+    int kernel_index = 0;
+    int bram_index = 0;
     initial
     begin
-        foreach (feature[f_file_idx])
+        forever
         begin
-            feature[f_file_idx] = $fopen($sformatf("fishbox_feature_%0d.txt",f_file_idx),"w");
-            weight [f_file_idx] = $fopen($sformatf("fishbox_weight_%0d.txt",f_file_idx),"w");
-            deconv [f_file_idx] = $fopen($sformatf("fishbox_deconv_%0d.txt",f_file_idx),"w");
+            @(posedge i_clk);
+            for (int core_index=0; core_index<4; core_index++)
+            begin
+                if (deconv_core_inst.data_gather_valid_out[core_index])
+                begin
+                    assign_data_gather_kernel_value(actual_data_gather_result,deconv_core_inst.data_gather_data_out[core_index], core_index); 
+                end
+            end
+            print_result_channel(actual_data_gather_result,0 ,kernel_index, actual_result[bram_index]);
+            bram_index ++;
+            actual_data_gather_result = {};
+            if (bram_index==4)
+            begin
+                kernel_index ++;
+                bram_index = 0;
+            end
         end
-        result = $fopen("result.txt","w");
+    end
+    
+    // Calculate reference result
+    initial
+    begin
+        foreach (weight[f_file_idx])
+        begin
+            weight [f_file_idx]         = $fopen($sformatf("fishbox_weight_%0d.txt",f_file_idx),"w");
+            deconv [f_file_idx]         = $fopen($sformatf("fishbox_deconv_%0d.txt",f_file_idx),"w");
+            result [f_file_idx]         = $fopen($sformatf("fishbox_ref_result_%0d.txt", f_file_idx),"w");
+            actual_result [f_file_idx]  = $fopen($sformatf("fishbox_actual_result_%0d", f_file_idx),"w");
+        end
+        feature= $fopen($sformatf("fishbox_feature.txt"),"w");
+       
         
         wait(weight_kernel_counter===4);
         
         foreach(weight_kernel[kernel_index,channel_index])
         begin
-            print_weight_channel(weight_kernel[kernel_index][channel_index], channel_index);   
+            print_weight_channel(weight_kernel[kernel_index][channel_index], kernel_index, channel_index);   
         end
         
         foreach (feature_kernel[f_kernel_index])
         begin
-            foreach (feature_kernel[f_kernel_index][f_channel_index])
-            begin
-                print_feature_channel(feature_kernel[f_kernel_index][f_channel_index], f_channel_index);         
+            print_feature_channel(feature_kernel[f_kernel_index], f_kernel_index);         
+            foreach(weight_kernel[kernel_index,channel_index])
+            begin 
+                // parallel between 4 weight_bram
+                /*weight bram 0*/deconv_operation(weight_kernel[kernel_index][channel_index][0], feature_kernel[f_kernel_index][channel_index], ref_deconv_result_kernel[0][kernel_index][channel_index],0,channel_index); 
+                $display("kernel_index=%0d, channel_index=%0d",kernel_index, channel_index);
+                $displayh("----- deconv_result[0]:%p", ref_deconv_result_kernel[0][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[1]:%p", ref_deconv_result_kernel[1][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[2]:%p", ref_deconv_result_kernel[2][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[3]:%p", ref_deconv_result_kernel[3][kernel_index][channel_index]);
+                /*weight_bram_1*/deconv_operation(weight_kernel[kernel_index][channel_index][1], feature_kernel[f_kernel_index][channel_index], ref_deconv_result_kernel[1][kernel_index][channel_index],1,channel_index); 
+                $display("kernel_index=%0d, channel_index=%0d",kernel_index, channel_index);
+                $displayh("----- deconv_result[0]:%p", ref_deconv_result_kernel[0][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[1]:%p", ref_deconv_result_kernel[1][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[2]:%p", ref_deconv_result_kernel[2][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[3]:%p", ref_deconv_result_kernel[3][kernel_index][channel_index]);
+                /*weight_bram_2*/deconv_operation(weight_kernel[kernel_index][channel_index][2], feature_kernel[f_kernel_index][channel_index], ref_deconv_result_kernel[2][kernel_index][channel_index],2,channel_index); 
+                $display("kernel_index=%0d, channel_index=%0d",kernel_index, channel_index);
+                $displayh("----- deconv_result[0]:%p", ref_deconv_result_kernel[0][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[1]:%p", ref_deconv_result_kernel[1][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[2]:%p", ref_deconv_result_kernel[2][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[3]:%p", ref_deconv_result_kernel[3][kernel_index][channel_index]);
+                /*weight_bram_4*/deconv_operation(weight_kernel[kernel_index][channel_index][3], feature_kernel[f_kernel_index][channel_index], ref_deconv_result_kernel[3][kernel_index][channel_index],3,channel_index); 
+                $display("kernel_index=%0d, channel_index=%0d",kernel_index, channel_index);
+                $displayh("----- deconv_result[0]:%p", ref_deconv_result_kernel[0][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[1]:%p", ref_deconv_result_kernel[1][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[2]:%p", ref_deconv_result_kernel[2][kernel_index][channel_index]); 
+                $displayh("----- deconv_result[3]:%p", ref_deconv_result_kernel[3][kernel_index][channel_index]);
             end
-            foreach(weight_kernel[kernel_index])
+            
+            foreach (ref_deconv_result_kernel[weight_bram_index,kernel_index])
             begin
-                foreach (weight_kernel[kernel_index][channel_index])
-                begin
-                    print_weight_channel(weight_kernel[kernel_index][channel_index], channel_index);  
-                    deconv_operation(weight_kernel[kernel_index][channel_index][0], feature_kernel[f_kernel_index][channel_index], deconv_channel[$+1][0],0,channel_index); 
-                    deconv_operation(weight_kernel[kernel_index][channel_index][1], feature_kernel[f_kernel_index][channel_index], deconv_channel[$+1][1],1,channel_index); 
-                    deconv_operation(weight_kernel[kernel_index][channel_index][2], feature_kernel[f_kernel_index][channel_index], deconv_channel[$+1][2],2,channel_index); 
-                    deconv_operation(weight_kernel[kernel_index][channel_index][3], feature_kernel[f_kernel_index][channel_index], deconv_channel[$+1][3],3,channel_index); 
-                end
-            end
-            foreach (deconv_channel[kernel_index])
-            begin
-                gather_data_each_kernel(deconv_channel[kernel_index]);
+                $display(weight_bram_index, kernel_index);
+                gather_data_each_kernel(
+                                        ref_deconv_result_kernel[weight_bram_index][kernel_index],
+                                        weight_bram_index,
+                                        kernel_index
+                                       );
             end
         end
         
-        foreach (feature[f_file_idx])
+        $fclose(feature);
+        foreach (weight[f_file_idx])
         begin
-            $fclose(result);
-            $fclose(feature[f_file_idx]);
+            $fclose(result[f_file_idx]);
             $fclose(weight[f_file_idx]);
             $fclose(deconv[f_file_idx]);
         end
+//        $finish;
     end
+    
+    
     
     genvar weight_bram_index;
     generate 
@@ -393,23 +493,24 @@ module deconv_core_check(
             bram_controller #(
                 .ADDRESS_WIDTH          (ADDRESS_WIDTH                              ), 
                 .BRAM_DATA_WIDTH        (BRAM_DATA_WIDTH                            ), 
-                .WRITER_DATA_IN_WIDTH   (DATA_IN_WIDTH                              ), 
+                .WRITER_DATA_IN_WIDTH   (((SIZE_OF_PRSC_OUTPUT/2)**2)*2*PIX_WIDTH  ), 
                 .READER_DATA_OUT_WIDTH  (PIX_WIDTH                                  ) 
             ) feature_bram_controller (
-                .clk_i                  (i_clk                                      ),
-                .rst_i                  (i_rst_n                                    ),    
-                .rd_en_i                (feature_reader_en      [feature_bram_index]),    
-                .wr_en_i                (1'b0                                       ),    
-                .wr_valid_i             (feature_writer_valid   [feature_bram_index]),    
-                .wr_data_i              (feature_writer_data_in [feature_bram_index]),    
-                .wr_finish_o            (feature_writer_finish  [feature_bram_index]),    
-                .rd_valid_o             (feature_reader_valid   [feature_bram_index]),    
-                .rd_data_o              (feature_reader_data_out[feature_bram_index*PIX_WIDTH+:PIX_WIDTH]),    
-                .bram_addr              (feature_bram_addr      [feature_bram_index]),    
-                .bram_en                (feature_bram_en        [feature_bram_index]),    
-                .bram_we                (feature_bram_we        [feature_bram_index]),    
-                .bram_data_out          (feature_bram_data_out  [feature_bram_index]),    
-                .bram_data_in           (feature_bram_data_in   [feature_bram_index])    
+                .clk_i                  (i_clk                                             ),
+                .rst_i                  (i_rst_n                                           ),    
+                .rd_en_i                (feature_reader_en             [feature_bram_index]),    
+                .wr_en_i                (feature_writer_en             [feature_bram_index]),    
+                .wr_valid_i             (feature_writer_valid          [feature_bram_index]),    
+                .wr_ready_i             (feature_writer_transfer_ready [feature_bram_index]),
+                .wr_data_i              (feature_writer_data_in        [feature_bram_index*((SIZE_OF_PRSC_OUTPUT/2)**2)*2*PIX_WIDTH+:((SIZE_OF_PRSC_OUTPUT/2)**2)*2*PIX_WIDTH]),    
+                .wr_finish_o            (feature_writer_finish         [feature_bram_index]),    
+                .rd_valid_o             (feature_reader_valid          [feature_bram_index]),    
+                .rd_data_o              (feature_reader_data_out       [feature_bram_index*PIX_WIDTH+:PIX_WIDTH]),    
+                .bram_addr              (feature_bram_addr             [feature_bram_index]),    
+                .bram_en                (feature_bram_en               [feature_bram_index]),    
+                .bram_we                (feature_bram_we               [feature_bram_index]),    
+                .bram_data_out          (feature_bram_data_out         [feature_bram_index]),    
+                .bram_data_in           (feature_bram_data_in          [feature_bram_index])    
             );          
         end
     endgenerate
@@ -419,6 +520,7 @@ module deconv_core_check(
         .ena          (feature_bram_en       [0]),
         .wea          (feature_bram_we       [0]),
         .addra        (feature_bram_addr     [0]),
+        .dina         (feature_bram_data_in  [0]),
         .douta        (feature_bram_data_out [0]) 
     );    
     blk_mem_gen_6 feature_bram_2 (
@@ -426,6 +528,7 @@ module deconv_core_check(
         .ena          (feature_bram_en       [1]),
         .wea          (feature_bram_we       [1]),
         .addra        (feature_bram_addr     [1]),
+        .dina         (feature_bram_data_in  [1]),
         .douta        (feature_bram_data_out [1]) 
     );   
     blk_mem_gen_7 feature_bram_3 (
@@ -433,6 +536,7 @@ module deconv_core_check(
         .ena          (feature_bram_en       [2]),
         .wea          (feature_bram_we       [2]),
         .addra        (feature_bram_addr     [2]),
+        .dina         (feature_bram_data_in  [2]),        
         .douta        (feature_bram_data_out [2]) 
     );    
     blk_mem_gen_8 feature_bram_4 (
@@ -440,6 +544,7 @@ module deconv_core_check(
         .ena          (feature_bram_en       [3]),
         .wea          (feature_bram_we       [3]),
         .addra        (feature_bram_addr     [3]),
+        .dina         (feature_bram_data_in  [3]),        
         .douta        (feature_bram_data_out [3]) 
     ); 
     //====================================================================//
