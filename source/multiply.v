@@ -20,28 +20,29 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 (* use_dsp = "yes" *)
+`include "gan_common_define.vh"
 module multiply 
 # (
     parameter BIT_WIDTH = 8
 )(
-    input                        i_clk         ,
-    input                        i_rst_n       ,
-    input   [BIT_WIDTH-1  :0]    i_pix_weight  ,
-    input   [BIT_WIDTH-1  :0]    i_pix_feature ,
-    output  [2*BIT_WIDTH-1:0]    o_pix_feature ,
-    input                        i_enable_colw ,
-    input                        i_enable_colip,
-    output                       o_ready       ,
-    output                       o_start       ,
-    output                       o_init
+    input                            i_clk         ,
+    input                            i_rst_n       ,
+    input                            i_enable_core ,
+    input       [BIT_WIDTH-1  :0]    i_pix_weight  ,
+    input       [BIT_WIDTH-1  :0]    i_pix_feature ,
+    output  reg [2*BIT_WIDTH-1:0]    o_pix_feature ,
+    input                            i_enable_colw ,
+    input                            i_enable_colip,
+    output                           o_ready       ,
+    output                           o_start       
 );
 
 localparam PIPELINE_STAGE = 1;
-reg start_reg;
-reg init_core_reg;
-reg [BIT_WIDTH-1:0] pix_w;
-reg [BIT_WIDTH-1:0] pix_f;
-
+reg  start_reg;
+reg  init_core_reg;
+reg  [BIT_WIDTH-1:0] pix_w;
+reg  [BIT_WIDTH-1:0] pix_f;
+wire [2*BIT_WIDTH-1:0]  o_tmp_pix;
 //check pipe stage to have product value P = A * B
 reg [1:0] cnt;
 wire pre_valid;
@@ -56,7 +57,7 @@ mult_gen_0 mul1 (
   .CLK(i_clk        ),    // input wire CLK
   .A  (pix_w        ),    // input wire [7 : 0] A
   .B  (pix_f        ),    // input wire [7 : 0] B
-  .P  (o_pix_feature)     // output wire [15 : 0] P
+  .P  (o_tmp_pix    )     // output wire [15 : 0] P
 );
 //--------------------------------------------------------//
 //create ffs to latch new data into pix_w and pix_f
@@ -75,6 +76,19 @@ always @(posedge i_clk, negedge i_rst_n) begin
   end
 end
 
+always @(posedge i_clk, negedge i_rst_n) begin
+  if(!i_rst_n) begin
+    o_pix_feature <= 0;
+  end
+  else begin
+    if(i_enable_core) begin
+        o_pix_feature <= o_tmp_pix;
+    end
+    else begin
+        o_pix_feature <= 0;
+    end
+  end
+end
 //after enable, o_ready will hold 0 until
 // clk              __|``|__|``|__|``|__|``|__|``|__|
 // i_enable_colw    __|`````|________________________
@@ -114,7 +128,8 @@ always @(posedge i_clk, negedge i_rst_n) begin
       cnt <= cnt + 1;
     end
     else begin
-      if(cnt == PIPELINE_STAGE) begin
+      // if(cnt == PIPELINE_STAGE) begin
+      if (i_enable_core) begin
         cnt <= 0;
       end
     end
@@ -127,7 +142,8 @@ always @(posedge i_clk, negedge i_rst_n) begin
         init_core_reg <= 1;
     end
     else begin
-        if(cnt == PIPELINE_STAGE) 
+        // if(cnt == PIPELINE_STAGE) 
+        if (i_enable_core)
         begin
             init_core_reg <= 0;
         end
@@ -154,3 +170,4 @@ always @(posedge i_clk, negedge i_rst_n) begin
 end
 
 endmodule
+

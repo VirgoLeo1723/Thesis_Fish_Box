@@ -15,9 +15,9 @@ module loadip_buffer //pingpong buf
     output                      o_starved, //done
 
     //read side
-    output reg                     o_rd_ready, //done
-    input                       i_rd_activate, //done
-    output [DATA_WIDTH-1:0]     o_rdata, //done
+    output reg                  o_rd_ready,     //done
+    input                       i_rd_activate,  //done
+    output [DATA_WIDTH-1:0]     o_rdata,        //done
     input                       i_rstrobe, //done
     output reg [15:0]           o_rd_cnt, //done
 
@@ -53,7 +53,7 @@ module loadip_buffer //pingpong buf
     reg [1:0]                   r_pre_activate  ; //done
     reg                         r_pre_read_wait ; //done
     reg [1:0]                   r_next_ff       ; //done
-
+    reg                         rd_en           ;
     reg                         rd_rst          ; //done
     reg [3:0]                   rd_rst_timeout  ; //done
 
@@ -67,11 +67,8 @@ module loadip_buffer //pingpong buf
     assign ppfifo_ready = ~wr_rst & ~rd_rst;
     assign o_inactivate = (wr_cnt[0] == 0) && (wr_cnt[1] == 0) 
                           && (o_wr_ready == 2'b11) && i_wstrobe;
-
     assign wr_fifo_size = FIFO_DEPTH;
-
     assign o_starved = !o_rd_ready && !i_rd_activate;
-
     assign o_rdata = (r_pre_strobe) ? w_rdata : r_rdata;
    
   	
@@ -82,6 +79,7 @@ module loadip_buffer //pingpong buf
         .clk        (i_clk),
         .rst_n      (i_rst_n),
         .wr_en      (wr_en),
+        .rd_en      (rd_en),
         .addr_in    (wr_addr_in),
         .addr_out   (rd_addr_out),
         .wr_data    (i_wdata),
@@ -89,14 +87,23 @@ module loadip_buffer //pingpong buf
     );
 
     always @(*) begin
-      if(i_wr_activate > 0 & i_wstrobe) begin
+      if( i_wstrobe) begin
             wr_en = 1;
         end
         else begin
             wr_en = 0;
         end
     end
-
+    
+    always @(*) begin
+      if(i_rd_activate > 0 & i_rstrobe) begin
+            rd_en = 1;
+        end
+        else begin
+            rd_en = 0;
+        end
+    end
+    
     always @(*) begin
         case(i_wr_activate) 
             2'b00: begin
@@ -319,7 +326,14 @@ module loadip_buffer //pingpong buf
                 end
                 if(i_rstrobe && (rd_base_addr < (rd_size[rd_sel_ff] + 1))) begin
                     r_rdata <= w_rdata;
-                    rd_base_addr <= rd_base_addr + 1;
+                    if (rd_base_addr  == rd_size[rd_sel_ff])
+                    begin
+                        rd_base_addr <= 0;
+                    end
+                    else
+                    begin
+                        rd_base_addr <= rd_base_addr + 1;
+                    end
                 end
                 else begin
                     if(!i_rstrobe && r_pre_strobe) begin

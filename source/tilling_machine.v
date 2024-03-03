@@ -19,26 +19,30 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 module tilling_machine  #(
-                        	parameter SIZE_OF_EACH_CORE_INPUT = 2,
-                          	parameter SIZE_OF_EACH_KERNEL = 3,
-                          	parameter STRIDE = 1,
-                          	parameter PIX_WIDTH = 16,
+                        	parameter SIZE_OF_EACH_CORE_INPUT   = 2,
+                          	parameter SIZE_OF_EACH_KERNEL       = 3,
+                          	parameter STRIDE                    = 1,
+                          	parameter PIX_WIDTH                 = 16,
+                          	parameter NUM_OF_KERNEL             = 16,
                           	parameter NON_OVERLAPPED_CONST      = SIZE_OF_EACH_CORE_INPUT * STRIDE,
                             parameter SIZE_OF_PRSC_INPUT        = STRIDE* (SIZE_OF_EACH_CORE_INPUT-1) + SIZE_OF_EACH_KERNEL,
                             parameter SIZE_OF_PRSC_OUTPUT       = 2*SIZE_OF_PRSC_INPUT - (SIZE_OF_PRSC_INPUT-NON_OVERLAPPED_CONST)
                         )(
-                            input                                           clk_i                   ,
-                            input                                           rst_i                   ,
-                            input        			                        valid_data_core_i       ,         
-  							input  [SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH  -1:0]                    overlapped_column_core_i,
-                            output [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH   -1:0]      tilling_machine_o       ,
+                            input                                                               clk_i                   ,
+                            input                                                               rst_i                   ,
+                            input  [31:0]                                                       i_param_cfg_output      ,
+                            input  [31:0]                                                       i_param_cfg_weight      ,
+                            input  [31:0]                                                       i_param_cfg_feature     ,
+                            input                                                               valid_data_core_i       ,         
+                            input  [SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH  -1:0]                      overlapped_column_core_i,
+                            output [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH   -1:0] tilling_machine_o       ,
                             output reg                                    tilling_machine_valid_o
                         );
   	wire [SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH-1:0]                    tilling_buffer_wr_data;
   	wire [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH-1:0]    tilling_buffer_rd_data;
   	wire [3:0]                                  tilling_buffer_is_empty;
     wire [3:0]                                  tilling_buffer_is_full ;
-    wire  [3:0]                                  tilling_buffer_wr_en;
+    wire  [3:0]                                 tilling_buffer_wr_en;
   	wire [3:0]                                  tilling_buffer_en;
      
  	integer       wr_ptr;
@@ -80,9 +84,11 @@ module tilling_machine  #(
         end
     end
     
-    assign tilling_buffer_wr_en = (wr_ptr<SIZE_OF_PRSC_OUTPUT/2) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b0101 : 
-                                  (wr_ptr < SIZE_OF_PRSC_OUTPUT) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b1010 : 4'd0;
+    // assign tilling_buffer_wr_en = (wr_ptr<SIZE_OF_PRSC_OUTPUT/2) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b0101 : 
+                                //   (wr_ptr < SIZE_OF_PRSC_OUTPUT) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b1010 : 4'd0;
     
+    assign tilling_buffer_wr_en = (wr_ptr<`OVERLAP_PROCESSOR_OUTPUT_SIZE/2) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b0101 : 
+                                  (wr_ptr<`OVERLAP_PROCESSOR_OUTPUT_SIZE ) & (tilling_buffer_is_full!=4'd15) & valid_data_core_i ? 4'b1010 : 4'd0;
     always @(posedge clk_i, negedge rst_i)
     begin
         if (!rst_i)

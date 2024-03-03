@@ -75,7 +75,6 @@ module bram_reader #(
                       	begin
                       	     {bram_data ,data_o} <= {{DATA_OUT_WIDTH{1'b0}}, bram_data};
                       	     valid_o    	     <= 1'b1							      ;
-
                       	end
                       	else
                       	begin

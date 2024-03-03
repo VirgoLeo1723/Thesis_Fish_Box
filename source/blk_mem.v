@@ -42,8 +42,8 @@ reg [BIT_WIDTH-1:0] reg_rdata;
 
 assign rd_data = reg_rdata;
 
-integer loop_var;
-
+//integer loop_var;
+reg [ADDR_WIDTH:0] loop_var;
 always @(posedge clk, negedge rst_n) begin
     if(!rst_n) begin
         for (loop_var=0; loop_var<(1<<ADDR_WIDTH); loop_var=loop_var+1)
@@ -63,6 +63,7 @@ always @(posedge clk, negedge rst_n) begin
         reg_rdata <= 0;
     end
     else begin
+    if (rd_en)
         reg_rdata <= mem[addr_out];
     end
 end

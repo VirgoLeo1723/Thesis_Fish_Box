@@ -19,7 +19,6 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-
 // Code your design here
 module weight_fifo 
 #(
@@ -30,6 +29,7 @@ module weight_fifo
 (
     input i_clk                     ,
     input i_rst_n                   ,
+    input [31:0] i_param_cfg_weight,
     input wr_en                     ,
     input rd_en                     ,
     input loop_back                 ,
@@ -58,24 +58,28 @@ module weight_fifo
     wire threshold                          ;
     wire end_channel                        ;
     reg  core_init                          ;  
-    integer i;
-
+    
+    //integer i;
+    reg [PIX_WIDTH-1:0] i;
     assign re_fifo = !s_empty & rd_en;
     assign we_fifo = !s_full & wr_en ;
 
-    assign s_full  = wr_pt == N_OF_PIXELS;
-    assign s_pre_full = wr_pt >= N_OF_PIXELS - 1;
+    assign s_full  = wr_pt == `WEIGHT_SIZE**2;
+    assign s_pre_full = wr_pt >= `WEIGHT_SIZE**2 - 1;
     
     assign s_empty = wr_pt == rd_pt;
     assign fifo_idle = !s_full & !s_empty;
 
-    assign threshold   = (rd_pt == N_OF_PIXELS); //indicate the last pixel of a weight channel
-    assign end_channel = (wr_pt == N_OF_PIXELS);
+    assign threshold   = (rd_pt == `WEIGHT_SIZE**2); //indicate the last pixel of a weight channel
+    assign end_channel = (wr_pt == `WEIGHT_SIZE**2);
 
     always @(posedge i_clk, negedge i_rst_n) begin
         if(!i_rst_n) begin
             wr_pt <= 0;
-            ram[wr_pt[PIX_WIDTH-1:0]] <= 0; 
+//            ram[wr_pt[PIX_WIDTH-1:0]] <= 0; 
+            for(i = 0; i < N_OF_PIXELS; i = i+1) begin
+                ram[i] <= 0;
+            end
         end
         else begin
             if(we_fifo) begin
@@ -85,11 +89,28 @@ module weight_fifo
           	else begin
               if(i_flush) begin
                 wr_pt <= 0;
+                for(i  = 0; i < N_OF_PIXELS; i=i+1) begin
+                    ram[i] <= 0;
+                end                
               end
             end
         end
     end
-    
+        //refresh fifo to load new channel  	
+//    always @(posedge i_clk, negedge i_rst_n) begin
+//      if(!i_rst_n) begin
+//            for(i = 0; i < N_OF_PIXELS; i = i+1) begin
+//                ram[i] <= 0;
+//            end
+//        end
+//        else begin
+//            if(i_flush) begin
+//                for(i  = 0; i < N_OF_PIXELS; i=i+1) begin
+//                    ram[i] <= 0;
+//                end
+//            end
+//        end
+//    end
     always @(posedge i_clk, negedge i_rst_n)
     begin
         if (!i_rst_n || i_flush)
@@ -98,7 +119,7 @@ module weight_fifo
         end
         else
         begin
-            if (cnt_concat == SIZE_OF_WEIGHT-1)
+            if (cnt_concat == `WEIGHT_SIZE-1)
             begin
                 core_init <= 1'b0;
             end
@@ -177,7 +198,7 @@ module weight_fifo
         else begin
           	if(re_fifo) 
           	begin 
-                if(cnt_concat == SIZE_OF_WEIGHT) 
+                if(cnt_concat == `WEIGHT_SIZE) 
                 begin
                     cnt_concat <= 0;
                     col_export_reg <= 1; 
@@ -190,7 +211,7 @@ module weight_fifo
             end
             else 
             begin
-                if((cnt_concat == SIZE_OF_WEIGHT)) 
+                if((cnt_concat == `WEIGHT_SIZE)) 
                 begin
                     col_export_reg <= 1'b1;
                     cnt_concat     <= 0;
@@ -225,21 +246,7 @@ module weight_fifo
         end
     end
     
-    //refresh fifo to load new channel  	
-    always @(posedge i_clk, negedge i_rst_n) begin
-      if(!i_rst_n) begin
-            for(i = 0; i < N_OF_PIXELS; i = i+1) begin
-                ram[i] <= 0;
-            end
-        end
-        else begin
-            if(i_flush) begin
-                for(i  = 0; i < N_OF_PIXELS; i=i+1) begin
-                    ram[i] <= 0;
-                end
-            end
-        end
-    end
+
 
     //------------------------------------------------------//
     //when core requests to flush data in weight fifo

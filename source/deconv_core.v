@@ -21,89 +21,96 @@
 
 
 module deconv_core #(
-        parameter SIZE_OF_GATHER_RESULT = 512,
-        parameter BRAM_DATA_WIDTH       = 32 ,                                                                          
-        parameter ADDRESS_WIDTH         = 13 ,                                                                          
-        parameter SIZE_OF_FEATURE       = 4  ,                                                                          
-        parameter SIZE_OF_WEIGHT        = 3  ,                                                                          
-        parameter PIX_WIDTH             = 16 ,                                                                          
-        parameter STRIDE                = 1  ,                                                                          
-        parameter N_PIX_IN              = (SIZE_OF_FEATURE/2)*SIZE_OF_WEIGHT,                                            
-        parameter STRB_WIDTH            = 2*PIX_WIDTH*N_PIX_IN/4 ,                                                      
-        parameter N_PIX_OUT             = (SIZE_OF_FEATURE/2)*SIZE_OF_WEIGHT - 
-                                          (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE/2-1) ,
-        parameter NON_OVERLAPPED_CONST      = (SIZE_OF_FEATURE/2) * STRIDE,
-        parameter SIZE_OF_PRSC_INPUT        = STRIDE* (SIZE_OF_FEATURE/2-1) + SIZE_OF_WEIGHT,
-        parameter SIZE_OF_PRSC_OUTPUT       = 2*SIZE_OF_PRSC_INPUT - (SIZE_OF_PRSC_INPUT-NON_OVERLAPPED_CONST)
+        parameter SIZE_OF_GATHER_RESULT         = 512,
+        parameter BRAM_DATA_WIDTH               = 32 ,                                                                          
+        parameter ADDRESS_WIDTH                 = 13 ,                                                                          
+        parameter SIZE_OF_FEATURE               = 4  ,                                                                          
+        parameter SIZE_OF_WEIGHT                = 3  ,                                                                          
+        parameter PIX_WIDTH                     = 16 ,                                                                          
+        parameter STRIDE                        = 1  ,                                                                          
+        parameter N_PIX_IN                      = (SIZE_OF_FEATURE/2)*SIZE_OF_WEIGHT,                                            
+        parameter STRB_WIDTH                    = 2*PIX_WIDTH*N_PIX_IN/4 ,                                                      
+        parameter N_PIX_OUT                     = (SIZE_OF_FEATURE/2)*SIZE_OF_WEIGHT - 
+                                                  (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE/2-1) ,
+        parameter NON_OVERLAPPED_CONST          = (SIZE_OF_FEATURE/2) * STRIDE,
+        parameter SIZE_OF_PRSC_INPUT            = STRIDE* (SIZE_OF_FEATURE/2-1) + SIZE_OF_WEIGHT,
+        parameter SIZE_OF_PRSC_OUTPUT           = 2*SIZE_OF_PRSC_INPUT - (SIZE_OF_PRSC_INPUT-NON_OVERLAPPED_CONST),
+        parameter NUM_OF_CHANNEL_EACH_WEIGHT    = 4,
+        parameter NUM_OF_WEIGHT                 = 4
     )(
-        input                                               i_clk                                      ,
-        input                                               i_rst_n                                    ,
-        output  [3:0]                                       weight_reader_en                           ,
-        input   [3:0]                                       weight_reader_valid                        ,
-        input   [PIX_WIDTH*4-1:0]                           weight_reader_data_out                     ,       
-        output  [3:0]                                       feature_writer_en                          ,
-        output  [3:0]                                       feature_writer_valid                       ,
-        output  [(SIZE_OF_PRSC_OUTPUT**2)*2*PIX_WIDTH-1:0]   feature_writer_data_in                     ,
-        input   [3:0]                                       feature_writer_finish                      ,
-        output  [3:0]                                       feature_reader_en                          ,
-        input   [3:0]                                       feature_reader_valid                       ,
+        input                                               i_clk                                ,
+        input                                               i_rst_n                              ,
+        input                                               i_enable                             ,
+        input   [31:0]                                      i_param_cfg_feature                  ,
+        input   [31:0]                                      i_param_cfg_weight                   ,
+        input   [31:0]                                      i_param_cfg_output                   ,
+        output  [3:0]                                       weight_reader_en                     ,
+        input   [3:0]                                       weight_reader_valid                  ,
+        input   [PIX_WIDTH*4-1:0]                           weight_reader_data_out               ,       
+        output  [3:0]                                       feature_writer_en                    ,
+        output  [3:0]                                       feature_writer_valid                 ,
+        output  [(SIZE_OF_PRSC_OUTPUT**2)*2*PIX_WIDTH-1:0]  feature_writer_data_in               ,
+        input   [3:0]                                       feature_writer_finish                ,
+        output  [3:0]                                       feature_writer_transfer_ready        ,
+        output  [3:0]                                       feature_reader_en                    ,
+        input   [3:0]                                       feature_reader_valid                 ,
         input   [PIX_WIDTH*4-1:0]                           feature_reader_data_out 
     );
-
-    wire [ADDRESS_WIDTH-1:0]                    feature_bram_addr                          ;      
-    wire                                        feature_bram_en                            ;
-    wire                                        feature_bram_we                            ;
-    wire [BRAM_DATA_WIDTH-1:0]                  feature_bram_data_out                      ;
-    wire [BRAM_DATA_WIDTH-1:0]                  feature_bram_data_in                       ;                            
-                                
-    wire                                        weight_writer_finish                       ;
-    wire [ADDRESS_WIDTH-1:0]                    weight_bram_addr                           ;      
-    wire                                        weight_bram_en                             ;
-    wire                                        weight_bram_we                             ;
-    wire [BRAM_DATA_WIDTH-1:0]                  weight_bram_data_out                       ;
+    // Connection for feature bram controller
+    wire [ADDRESS_WIDTH-1:0]                    feature_bram_addr                               ;      
+    wire                                        feature_bram_en                                 ;
+    wire                                        feature_bram_we                                 ;
+    wire [BRAM_DATA_WIDTH-1:0]                  feature_bram_data_out                           ;
+    wire [BRAM_DATA_WIDTH-1:0]                  feature_bram_data_in                            ;                            
+    // Connection for weight bram controller
+    wire                                        weight_writer_finish                            ;
+    wire [ADDRESS_WIDTH-1:0]                    weight_bram_addr                                ;      
+    wire                                        weight_bram_en                                  ;
+    wire                                        weight_bram_we                                  ;
+    wire [BRAM_DATA_WIDTH-1:0]                  weight_bram_data_out                            ;
+    // Connection for weight loader 
+    wire [3:0]                                  weight_fifo_wr_en                               ;          
+    wire [3:0]                                  weight_fifo_rd_en                               ;          
+    wire [3:0]                                  weight_fifo_loop                                ;          
+    wire [3:0]                                  weight_fifo_flush                               ;           
+    wire [PIX_WIDTH-1:0]                        weight_fifo_in           [0:3]                  ;           
+    wire [PIX_WIDTH*SIZE_OF_WEIGHT-1:0]         weight_fifo_out          [0:3]                  ;     
+    wire [3:0]                                  weight_fifo_empty                               ;
+    wire [3:0]                                  weight_fifo_full                                ;  
+    wire [3:0]                                  weight_fifo_pre_full                            ;              
+    wire [3:0]                                  weight_fifo_export_done                         ;          
+    wire [3:0]                                  weight_fifo_core_init                           ;             
+    wire [3:0]                                  weight_fifo_request_data                        ;          
+    wire [3:0]                                  weight_fifo_flush_fin                           ;         
+    wire [3:0]                                  weight_fifo_loop_fin                            ;  
+    // Connection for deconv kernel top     
+    wire [3:0]                                  deconv_multi_kernel_weight_fifo_rd_en[0:3]      ;
+    wire [3:0]                                  deconv_multi_kernel_weight_fifo_loop[0:3]       ;
+    wire [3:0]                                  deconv_multi_kernel_weight_fifo_flush[0:3]      ;
+    wire [PIX_WIDTH*SIZE_OF_WEIGHT*4-1:0]       deconv_multi_kernel_weight_fifo_out             ;
+    wire [PIX_WIDTH*4-1:0]                      deconv_multi_kernel_feature_reader_data_out     ;
+    wire [3:0]                                  deconv_multi_kernel_feature_reader_valid        ;
+    wire [3:0]                                  deconv_multi_kernel_feature_reader_en           ;
+    wire                                        deconv_multi_kernel_weight_fifo_export_done     ;
+    wire                                        deconv_multi_kernel_weight_fifo_core_init       ;
+    wire [N_PIX_OUT*2*PIX_WIDTH*4-1:0]          deconv_multi_kernel_col_result [0:3]            ;
+    wire [3:0]                                  deconv_multi_kernel_valid      [0:3]            ; 
+    // Connectuon for core overlapp 
+    wire [3:0]                                  core_overlap_valid_out                          ;
+    wire [3:0]                                  core_overlap_valid_in                           ;
+    wire [3:0]                                  core_overlap_en                                 ;
+    wire [SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH-1:0]  core_overlap_result    [3:0]                    ;
+    // Connection for tilling machine
+    wire [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH-1:0]  tilling_machine_out[0:3]    ;
+    wire [3:0]                                                      tilling_machine_valid       ;
+    // Connecton for data gather
+    wire [(SIZE_OF_PRSC_OUTPUT/2)**2*(2*PIX_WIDTH)-1:0]             data_gather_data_out[3:0]   ;
+    wire [3:0]                                                      data_gather_valid_out       ;
+    wire [3:0]                                                      data_gather_transfer_ready  ;
     
-    wire [3:0]                                  weight_fifo_wr_en                          ;          
-    wire [3:0]                                  weight_fifo_rd_en                          ;          
-    wire [3:0]                                  weight_fifo_loop                           ;          
-    wire [3:0]                                  weight_fifo_flush                          ;           
-    wire [PIX_WIDTH-1:0]                        weight_fifo_in           [0:3]             ;           
-    wire [PIX_WIDTH*SIZE_OF_WEIGHT-1:0]         weight_fifo_out          [0:3]             ;     
-    wire [3:0]                                  weight_fifo_empty                          ;
-    wire [3:0]                                  weight_fifo_full                           ;  
-    wire [3:0]                                  weight_fifo_pre_full                       ;              
-    wire [3:0]                                  weight_fifo_export_done                    ;          
-    wire [3:0]                                  weight_fifo_core_init                      ;             
-    wire [3:0]                                  weight_fifo_request_data                   ;          
-    wire [3:0]                                  weight_fifo_flush_fin                      ;         
-    wire [3:0]                                  weight_fifo_loop_fin                       ;  
-           
-    wire [3:0]                                  deconv_multi_kernel_weight_fifo_rd_en[0:3]  ;
-    wire [3:0]                                  deconv_multi_kernel_weight_fifo_loop[0:3]   ;
-    wire [3:0]                                  deconv_multi_kernel_weight_fifo_flush[0:3]  ;
-    wire [PIX_WIDTH*SIZE_OF_WEIGHT*4:0]         deconv_multi_kernel_weight_fifo_out         ;
-    
-    wire [PIX_WIDTH*4-1:0]                      deconv_multi_kernel_feature_reader_data_out ;
-    wire [3:0]                                  deconv_multi_kernel_feature_reader_valid    ;
-    wire [3:0]                                  deconv_multi_kernel_feature_reader_en       ;
-    wire                                        deconv_multi_kernel_weight_fifo_export_done ;
-    wire                                        deconv_multi_kernel_weight_fifo_core_init   ;
-    wire [N_PIX_OUT*2*PIX_WIDTH*4-1:0]          deconv_multi_kernel_col_result [0:3]        ;
-    wire [3:0]                                  deconv_multi_kernel_valid      [0:3]        ; 
-    
-    wire [3:0]                                  core_overlap_valid_out                      ;
-    wire [3:0]                                  core_overlap_valid_in                       ;
-    wire [3:0]                                  core_overlap_en                             ;
-    wire [SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH-1:0]  core_overlap_result    [3:0]                ;
-    
-    wire [SIZE_OF_PRSC_OUTPUT*SIZE_OF_PRSC_OUTPUT*2*    PIX_WIDTH-1:0]            tilling_machine_out  [0:3];
-    wire [3:0]                                                          tilling_machine_valid     ;
-   
-    wire [(SIZE_OF_PRSC_OUTPUT/2)*(SIZE_OF_FEATURE/2)*2*PIX_WIDTH-1:0]  data_gather_data_out  [3:0]    ;
-    wire [3:0]                                                          data_gather_valid_out     ;
-    
-
     assign feature_writer_valid                         = data_gather_valid_out                 ;  
     assign feature_writer_en                            = data_gather_valid_out                 ;  
+    assign feature_writer_transfer_ready                = data_gather_transfer_ready            ;
     assign feature_writer_data_in                       = {
                                                             data_gather_data_out[3],
                                                             data_gather_data_out[2],
@@ -125,7 +132,7 @@ module deconv_core #(
                                                           
     assign data_gather_valid_in                         = tilling_machine_valid                 ;
     assign data_gather_bram_writer_finish               = feature_writer_finish                 ;
-    
+
     // generate weight loader (weight fifo)    
     genvar weight_fifo_index;
     generate
@@ -138,12 +145,13 @@ module deconv_core #(
             )
             weight_fifo_inst_0 (
                 .i_clk                  (i_clk                                       ),                                                
-                .i_rst_n                (i_rst_n                                     ),                                                
+                .i_rst_n                (i_rst_n                                     ),
                 .wr_en                  (weight_fifo_wr_en        [weight_fifo_index]),                                                
                 .rd_en                  (weight_fifo_rd_en        [weight_fifo_index]),                                                
                 .loop_back              (weight_fifo_loop         [weight_fifo_index]),                                                
                 .i_flush                (weight_fifo_flush        [weight_fifo_index]),                                                
                 .data_in                (weight_fifo_in           [weight_fifo_index]),                                                
+                .i_param_cfg_weight     (i_param_cfg_weight                          ),
                 .colw_data_out          (weight_fifo_out          [weight_fifo_index]),         
                 .s_empty                (weight_fifo_empty        [weight_fifo_index]),                                                
                 .s_full                 (weight_fifo_full         [weight_fifo_index]),      
@@ -154,10 +162,10 @@ module deconv_core #(
                 .flush_fin		        (weight_fifo_flush_fin    [weight_fifo_index]),                                                         
                 .loop_fin               (weight_fifo_loop_fin     [weight_fifo_index])
             );
-            assign weight_reader_en[weight_fifo_index]  = ~weight_fifo_pre_full[weight_fifo_index];
+            assign weight_reader_en[weight_fifo_index]  = ~weight_fifo_pre_full[weight_fifo_index] & i_enable;
             assign weight_fifo_in[weight_fifo_index]    = weight_reader_data_out[weight_fifo_index*PIX_WIDTH+:PIX_WIDTH];
             assign weight_fifo_wr_en[weight_fifo_index] = weight_reader_valid[weight_fifo_index] 
-                                                        & ~weight_fifo_full[weight_fifo_index];
+                                                        & ~weight_fifo_full[weight_fifo_index] & i_enable;
             assign weight_fifo_flush[weight_fifo_index] = deconv_multi_kernel_weight_fifo_flush[0][weight_fifo_index] &
                                                           deconv_multi_kernel_weight_fifo_flush[1][weight_fifo_index] &
                                                           deconv_multi_kernel_weight_fifo_flush[2][weight_fifo_index] &
@@ -176,9 +184,6 @@ module deconv_core #(
         end
     endgenerate
     
-    // generate deconvolution core
-    initial             $display("%m");
-
     genvar core_index;
     generate
     begin
@@ -190,10 +195,16 @@ module deconv_core #(
                 .SIZE_OF_FEATURE            (SIZE_OF_FEATURE/2         ),                                                                          
                 .SIZE_OF_WEIGHT             (SIZE_OF_WEIGHT            ),                                                                          
                 .PIX_WIDTH                  (PIX_WIDTH                 ),                                                                          
-                .STRIDE                     (STRIDE                    )                                                                          
+                .STRIDE                     (STRIDE                    ),
+                .NUM_OF_CHANNEL_EACH_WEIGHT (NUM_OF_CHANNEL_EACH_WEIGHT),
+                .NUM_OF_WEIGHT              (NUM_OF_WEIGHT             ) 
             ) inst(
                 .i_clk                      (i_clk                                                                       ),
-                .i_rst_n                    (i_rst_n                                                                     ),  
+                .i_rst_n                    (i_rst_n                                                                     ),
+                .i_enable                   (i_enable                                                                    ),
+                .i_param_cfg_feature        (i_param_cfg_feature                                                         ),
+                .i_param_cfg_weight         (i_param_cfg_weight                                                          ),
+                .i_param_cfg_output         (i_param_cfg_output                                                          ),
                 .feature_reader_data_out    (deconv_multi_kernel_feature_reader_data_out[core_index*PIX_WIDTH+:PIX_WIDTH]),
                 .feature_reader_valid       (deconv_multi_kernel_feature_reader_valid[core_index]                        ),
                 .feature_reader_en          (deconv_multi_kernel_feature_reader_en[core_index]                           ),  
@@ -212,7 +223,6 @@ module deconv_core #(
     
     // generate core overlap processor
     genvar kernel_index;
-    genvar sub_kernel_index;
     generate
         for (kernel_index=0; kernel_index<4; kernel_index = kernel_index + 1)
         begin            
@@ -225,29 +235,35 @@ module deconv_core #(
                 .STRIDE                     (STRIDE              ), 
                 .PIX_WIDTH                  (PIX_WIDTH           )     
             )core_overlap_prsc_inst(
-                .clk_i                      (i_clk                                                                                    ),
-                .rst_i                      (i_rst_n                                                                                  ),
-                .en_i                       (core_overlap_en[kernel_index]                                                            ),
-                .valid_i                    (core_overlap_valid_in[kernel_index]                                                      ),
-                .core_data_0_i              (deconv_multi_kernel_col_result[0][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH] ),
-                .core_data_1_i              (deconv_multi_kernel_col_result[1][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH] ),
-                .core_data_2_i              (deconv_multi_kernel_col_result[2][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH] ),
-                .core_data_3_i              (deconv_multi_kernel_col_result[3][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH] ),
-                .valid_o                    (core_overlap_valid_out[kernel_index]                                                     ),
-                .overlapped_column_o        (core_overlap_result[kernel_index]                                                         )                                                             
+                .clk_i                      (i_clk                                                                                          ),
+                .rst_i                      (i_rst_n                                                                                        ),
+                .en_i                       (core_overlap_en[kernel_index]                                                                  ),
+                .valid_i                    (core_overlap_valid_in[kernel_index]                                                            ),
+                .core_data_0_i              (deconv_multi_kernel_col_result[0][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH]   ),
+                .core_data_1_i              (deconv_multi_kernel_col_result[1][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH]   ),
+                .core_data_2_i              (deconv_multi_kernel_col_result[2][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH]   ),
+                .core_data_3_i              (deconv_multi_kernel_col_result[3][kernel_index*2*N_PIX_OUT*PIX_WIDTH+:N_PIX_OUT*2*PIX_WIDTH]   ),
+                // .i_param_cfg_output         (i_param_cfg_output                                                                             ),
+                .valid_o                    (core_overlap_valid_out[kernel_index]                                                           ),
+                .overlapped_column_o        (core_overlap_result[kernel_index]                                                              )                                                             
             );
             
             // tilling machine
             tilling_machine  #(
-                .SIZE_OF_INPUT              (SIZE_OF_PRSC_OUTPUT*2*PIX_WIDTH      ),
-                .SIZE_OF_FEATURE            (SIZE_OF_PRSC_OUTPUT                  )
+                . SIZE_OF_EACH_CORE_INPUT   (SIZE_OF_FEATURE/2                      ),
+                . SIZE_OF_EACH_KERNEL       (SIZE_OF_WEIGHT                         ),
+                . STRIDE                    (STRIDE                                 ),
+                . PIX_WIDTH                 (PIX_WIDTH                              )
             )tilling_machine_inst(
-                .clk_i                      (i_clk                                ),
-                .rst_i                      (i_rst_n                              ),         
-                .overlapped_column_core_i   (core_overlap_result[kernel_index]    ),
-                .valid_data_core_i          (core_overlap_valid_out[kernel_index] ),
-                .tilling_machine_o          (tilling_machine_out   [kernel_index] ),
-                .tilling_machine_valid_o    (tilling_machine_valid [kernel_index] )
+                .clk_i                      (i_clk                                  ),
+                .rst_i                      (i_rst_n                                ),         
+                .i_param_cfg_feature        (i_param_cfg_feature                    ),
+                .i_param_cfg_weight         (i_param_cfg_weight                     ),
+                .i_param_cfg_output         (i_param_cfg_output                     ),
+                .overlapped_column_core_i   (core_overlap_result[kernel_index]      ),
+                .valid_data_core_i          (core_overlap_valid_out[kernel_index]   ),
+                .tilling_machine_o          (tilling_machine_out   [kernel_index]   ),
+                .tilling_machine_valid_o    (tilling_machine_valid [kernel_index]   )
             );
             
             // gather data    
@@ -266,10 +282,13 @@ module deconv_core #(
                                                 tilling_machine_out   [1][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH],
                                                 tilling_machine_out   [0][kernel_index*(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH+:(SIZE_OF_PRSC_OUTPUT**2)/4*2*PIX_WIDTH]                                                    
                                             }),
-                .i_valid_coming             (tilling_machine_valid [kernel_index]        ),
-                .i_feature_writer_finish    (feature_writer_finish [kernel_index]        ),
-                .o_gather_out               (data_gather_data_out  [kernel_index]        ),
-                .o_gather_valid             (data_gather_valid_out [kernel_index]        )
+                .i_valid_coming             (tilling_machine_valid      [kernel_index]  ),
+                .i_feature_writer_finish    (feature_writer_finish      [kernel_index]  ),
+                .i_param_cfg_output         (i_param_cfg_output                         ),
+                .i_param_cfg_weight         (i_param_cfg_weight                         ),
+                .o_gather_out               (data_gather_data_out       [kernel_index]  ),
+                .o_gather_valid             (data_gather_valid_out      [kernel_index]  ),
+                .o_gather_transfer_ready    (data_gather_transfer_ready [kernel_index]  )
             );  
         end
     endgenerate    

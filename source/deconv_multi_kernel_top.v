@@ -32,10 +32,15 @@ module deconv_multi_kernel_top#(
         parameter STRB_WIDTH                    = 2*PIX_WIDTH*N_PIX_IN/4 ,                                                      
         parameter N_PIX_OUT                     = SIZE_OF_FEATURE*SIZE_OF_WEIGHT - 
                                                   (SIZE_OF_WEIGHT-STRIDE)*(SIZE_OF_FEATURE-1),
-        parameter NUM_OF_CHANNEL_EACH_KERNEL    = 4
+        parameter NUM_OF_CHANNEL_EACH_WEIGHT    = 4,
+        parameter NUM_OF_WEIGHT                 = 4
     )(
         input                                       i_clk                   ,
-        input                                       i_rst_n                 , 
+        input                                       i_rst_n                 ,
+        input                                       i_enable                , 
+        input  [31:0]                               i_param_cfg_feature     ,
+        input  [31:0]                               i_param_cfg_weight      ,
+        input  [31:0]                               i_param_cfg_output      ,
         output [3:0]                                deconv_valid_o          ,
         output [N_PIX_OUT*2*PIX_WIDTH*4-1:0]        deconv_col_result_o         ,
         // communicate direct with feature bram reader 
@@ -51,7 +56,6 @@ module deconv_multi_kernel_top#(
         input                                       weight_fifo_core_init     
     );
     
-//    wire                                    weight_fifo_wr_en           ;
     reg [1:0]                               feature_wr_activate         ;
     reg                                     feature_wr_strobe           ;   
     reg                                     feature_rd_strobe           ;
@@ -100,8 +104,7 @@ module deconv_multi_kernel_top#(
     	.i_rst_n      (i_rst_n      ),
         // write side
         .o_wr_ready   (feature_wr_ready         ),  
-        .i_wr_activate(feature_wr_activate
-                      ),   
+        .i_wr_activate(feature_wr_activate      ),   
         .i_wdata      (feature_wr_data          ), 
         .i_wstrobe    (feature_wr_strobe | (post_feature_reader_en & ~feature_reader_en)), 
         .wr_fifo_size (feature_wr_fifo_size     ), 
@@ -133,13 +136,15 @@ module deconv_multi_kernel_top#(
                 .i_weight_col           (op_top_weight_col[sub_core_index*
                                         (SIZE_OF_WEIGHT*PIX_WIDTH)+:SIZE_OF_WEIGHT*PIX_WIDTH]   ),
                 .i_feature_map_col      (op_top_feature_map_col                                 ),
+                .i_param_cfg_feature    (i_param_cfg_feature                                    ),
+                .i_param_cfg_weight     (i_param_cfg_weight                                     ),
+                .i_param_cfg_output     (i_param_cfg_output                                     ),
                 .en_prcs_new_chnl       (op_top_weight_fifo_flush[sub_core_index]               ), 
                 .en_prcs_new_wcoln      (op_top_weight_fifo_rd_en[sub_core_index]               ),
                 .en_fifo_loop           (op_top_weight_fifo_loop[sub_core_index]                ),
                 .o_full_start           (op_top_full_start[sub_core_index]                      ),
                 .o_cmpl_deconv_col      (op_top_cmpl_deconv_col[sub_core_index*(2*PIX_WIDTH*N_PIX_OUT)+:(2*PIX_WIDTH*N_PIX_OUT)]                 ), 
-                .o_valid                (op_top_valid[sub_core_index]                           ), 
-                .o_init                 (op_top_init[sub_core_index]                            )
+                .o_valid                (op_top_valid[sub_core_index]                           )
             );
         end
 
@@ -154,23 +159,32 @@ module deconv_multi_kernel_top#(
         end
         else
         begin
-            if (weight_fifo_export_done && ~op_top_enable_loadw)
+            if (i_enable)
             begin
-                op_top_enable_loadw <= 1'b1;
-                op_top_weight_col   <= weight_fifo_out;
-            end
-            if (op_top_enable_loadw && op_top_enable_loadip)
-            begin
-                op_top_enable_loadw <= 1'b0;
-                op_top_weight_col   <= 0;
+                if (weight_fifo_export_done && ~op_top_enable_loadw)
+                begin
+                    op_top_enable_loadw <= 1'b1;
+                    op_top_weight_col   <= weight_fifo_out;
+                end
+                if (op_top_enable_loadw && op_top_enable_loadip)
+                begin
+                    op_top_enable_loadw <= 1'b0;
+                    op_top_weight_col   <= 0;
+                end
             end
         end
     end    
          
-    integer wr_count;
-    integer rd_count;
-    integer no_col_weight;
-    integer no_col_feature;
+    //integer wr_count;
+    reg [10:0] wr_count;
+    //integer rd_count;
+    reg [5:0] rd_count;
+    //integer no_col_weight;
+    reg [3:0] no_col_weight;
+    //integer no_col_feature;
+    reg [3:0] no_col_feature;
+    //integer no_weight;
+    reg [10:0] no_weight;
     reg init = 1'b1;
     
     always @(posedge i_clk, negedge i_rst_n)
@@ -183,17 +197,23 @@ module deconv_multi_kernel_top#(
         end
         else 
         begin
-            post_feature_reader_en <= feature_reader_en;
-            feature_wr_data     <= feature_reader_data_out;
-
-            if (feature_wr_activate!= 2'b00 && (wr_count < (SIZE_OF_FEATURE)**2*NUM_OF_CHANNEL_EACH_KERNEL-2)) 
-            begin 
-                feature_reader_en <= 1'b1;
+            if (i_enable )
+            begin
+                post_feature_reader_en <= feature_reader_en;
+                feature_wr_data     <= feature_reader_data_out;
+    
+                if (feature_wr_activate!= 2'b00 && (wr_count < (`FEATURE_SIZE)**2*`WEIGHT_CHANNEL-2)) 
+                begin 
+                    feature_reader_en <= 1'b1;
+                end
+                else feature_reader_en <= 1'b0;
             end
-            else feature_reader_en <= 1'b0;
         end
     end
     
+    //-----------------------------------------------------------------------
+    //                      FEATURE WRITE CONTROL
+    //-----------------------------------------------------------------------
     always @(posedge i_clk, negedge i_rst_n)
     begin
         feature_wr_strobe <= 1'b0;
@@ -205,47 +225,49 @@ module deconv_multi_kernel_top#(
         end
         else 
         begin
-            if ( (feature_wr_ready !=2'b00) && (feature_wr_activate==2'b00) && (no_col_feature==0)  )
+            if (i_enable)
             begin
-                if (feature_wr_ready[0]) 
+                if ( (feature_wr_ready !=2'b00) && (feature_wr_activate==2'b00) && (no_col_feature==0) && (no_weight==0)  )
                 begin
-                    feature_wr_activate[0] <= 1'b1;
-                end
-                else
-                begin
-                    feature_wr_activate[1] <= 1'b1;
-                end                
-            end
-            else
-            begin
-                if (feature_wr_activate != 2'b00)
-                begin
-
-                    if ((wr_count < (SIZE_OF_FEATURE)**2*NUM_OF_CHANNEL_EACH_KERNEL)&& (feature_reader_valid))
+                    if (feature_wr_ready[0]) 
                     begin
-                        feature_wr_strobe <= 1'b1   ;
-                        wr_count          <= wr_count + 1;        
+                        feature_wr_activate[0] <= 1'b1;
                     end
                     else
                     begin
-                        if (feature_wr_activate[0] && feature_wr_strobe) 
-                        begin 
-                            feature_wr_activate[0] <= 1'b0;
-                            if (feature_wr_ready!=2'b00) 
-                            begin
-                                feature_wr_activate[1] <= 1'b1;
-                            end
-                        end
-                        else if (feature_wr_activate[1] && feature_wr_strobe) 
+                        feature_wr_activate[1] <= 1'b1;
+                    end                
+                end
+                else
+                begin
+                    if (feature_wr_activate != 2'b00)
+                    begin
+    
+                        if ((wr_count < (`FEATURE_SIZE)**2*`WEIGHT_CHANNEL)&& (feature_reader_valid))
                         begin
-                            feature_wr_activate[1] <= 1'b0;
-                            if (feature_wr_ready!=2'b00) 
-                            begin 
-                                feature_wr_activate[0] <= 1'b1;
-                            end
+                            feature_wr_strobe <= 1'b1   ;
+                            wr_count          <= wr_count + 1;        
                         end
-                        wr_count <= 0;
-                        
+                        else
+                        begin
+                            if (feature_wr_activate[0] && feature_wr_strobe) 
+                            begin 
+                                feature_wr_activate[0] <= 1'b0;
+                                if (feature_wr_ready!=2'b00) 
+                                begin
+                                    feature_wr_activate[1] <= 1'b1;
+                                end
+                            end
+                            else if (feature_wr_activate[1] && feature_wr_strobe) 
+                            begin
+                                feature_wr_activate[1] <= 1'b0;
+                                if (feature_wr_ready!=2'b00) 
+                                begin 
+                                    feature_wr_activate[0] <= 1'b1;
+                                end
+                            end
+                            wr_count <= 0;
+                        end
                     end
                 end
             end
@@ -258,28 +280,46 @@ module deconv_multi_kernel_top#(
         if (!i_rst_n)
         begin
             no_col_weight   <= 0;
-            no_col_feature  <= 0    ;
+            no_col_feature  <= 0;
+            no_weight       <= 0;
         end
         else
         begin
-            if (op_top_enable_loadip && op_top_enable_loadw)
+            if (i_enable)
             begin
-                 if (no_col_weight < SIZE_OF_WEIGHT-1)
-                 begin
-                    no_col_weight <= no_col_weight + 1;
-                 end
-                 else
-                 begin
-                     no_col_weight      <= 0;                    
-                     if (no_col_feature < (SIZE_OF_FEATURE**2*NUM_OF_CHANNEL_EACH_KERNEL)/2)
-                        no_col_feature     <= no_col_feature + 1;
-                 end
+                if (op_top_enable_loadip && op_top_enable_loadw)
+                begin
+                    if (no_col_weight < `WEIGHT_SIZE-1)
+                    begin
+                       no_col_weight <= no_col_weight + 1;
+                    end
+                    else
+                    begin
+                        no_col_weight      <= 0;                    
+                        if (no_col_feature < (`FEATURE_SIZE**2*`WEIGHT_CHANNEL)/2)
+                        begin
+                           no_col_feature     <= no_col_feature + 1;
+                        end
+                    end
+                end
+                if (no_col_feature == (`FEATURE_SIZE**2*`WEIGHT_CHANNEL)/2)
+                begin
+                    no_col_feature     <= 0;
+                    if (no_weight <= `NUMBER_OF_WEIGHT)
+                    begin
+                        no_weight      <= no_weight + 1;
+                    end
+                end
+                
+                if (no_weight == `NUMBER_OF_WEIGHT) no_weight <= 0;
             end
-            if (no_col_feature == (SIZE_OF_FEATURE**2*NUM_OF_CHANNEL_EACH_KERNEL)/2)
-                                    no_col_feature     <= 0;
-
         end
     end
+    
+    //-----------------------------------------------------------------------
+    //                      FEATURE READ CONTROL
+    //-----------------------------------------------------------------------
+    reg [$clog2(SIZE_OF_FEATURE):0] feature_size_strobe;
     always @(posedge i_clk, negedge i_rst_n)
     begin
         if (!i_rst_n)
@@ -292,43 +332,56 @@ module deconv_multi_kernel_top#(
         end
         else
         begin
-            if (feature_rd_ready && !feature_rd_activate && no_col_weight==0)
+            if (i_enable)
             begin
-                save_read_ready     <= 1'b1;
-                feature_rd_activate <= 1'b1;
-                feature_rd_strobe   <= 1'b1;
-            end
-            else if (feature_rd_activate && save_read_ready)
-            begin
-                if (((rd_count < SIZE_OF_FEATURE-1 & ~init )||(rd_count < SIZE_OF_FEATURE & init)) && save_read_ready && feature_rd_strobe)
+                if (feature_rd_ready && !feature_rd_activate && no_col_weight==0)
                 begin
-                    op_top_feature_map_col <= {feature_rd_data_pix, op_top_feature_map_col[PIX_WIDTH+:(PIX_WIDTH*(SIZE_OF_FEATURE-1))]};
-                    rd_count <= rd_count + 1;
+                    save_read_ready     <= 1'b1;
+                    feature_rd_activate <= 1'b1;
+                    feature_rd_strobe   <= 1'b1;
+                end
+                else if (feature_rd_activate & save_read_ready /*& i_enable*/)
+                begin
+                    if (((rd_count < `FEATURE_SIZE-1 & ~init )||(rd_count < `FEATURE_SIZE & init)) && save_read_ready && feature_rd_strobe)
+                    begin
+                        for (feature_size_strobe=0; feature_size_strobe<`FEATURE_SIZE-1; feature_size_strobe = feature_size_strobe+1)
+                        begin
+                            op_top_feature_map_col[feature_size_strobe*PIX_WIDTH+:PIX_WIDTH] <= op_top_feature_map_col[(feature_size_strobe+1)*PIX_WIDTH+:PIX_WIDTH];
+                        end
+                        op_top_feature_map_col[(`FEATURE_SIZE-1)*PIX_WIDTH+:PIX_WIDTH] <= feature_rd_data_pix; 
+                        rd_count <= rd_count + 1;
+                    end
+                    else
+                    begin
+                        if (init) init <= 1'b0; 
+                        for (feature_size_strobe=0; feature_size_strobe<`FEATURE_SIZE-1; feature_size_strobe = feature_size_strobe+1)
+                        begin
+                            op_top_feature_map_col[feature_size_strobe*PIX_WIDTH+:PIX_WIDTH] <= op_top_feature_map_col[(feature_size_strobe+1)*PIX_WIDTH+:PIX_WIDTH];
+                        end
+                        op_top_feature_map_col[(`FEATURE_SIZE-1)*PIX_WIDTH+:PIX_WIDTH] <= feature_rd_data_pix; 
+                        rd_count                <= 0;
+                        feature_rd_strobe       <= 1'b0;
+                        save_read_ready         <= 1'b0;
+                    end
                 end
                 else
                 begin
-                    if (init) init <= 1'b0; 
-                    op_top_feature_map_col <= {feature_rd_data_pix, op_top_feature_map_col[PIX_WIDTH+:(PIX_WIDTH*(SIZE_OF_FEATURE-1))]};
-                
-//                    op_top_feature_map_col  <= {op_top_feature_map_col, feature_rd_data_pix};
-                    rd_count                <= 0;
-                    feature_rd_strobe       <= 1'b0;
-                    save_read_ready         <= 1'b0;
+                    if (weight_fifo_loop && feature_rd_activate)
+                    begin
+                        save_read_ready <= 1'b1;  
+                        feature_rd_strobe <= 1'b1;  
+                    end
                 end
-            end
-            else
-            begin
-                if (weight_fifo_loop && feature_rd_activate)
+                if (no_col_feature == (`FEATURE_SIZE**2*`WEIGHT_CHANNEL)/2)
                 begin
-                    save_read_ready <= 1'b1;  
-                    feature_rd_strobe <= 1'b1;  
+                    init <= 1'b1;
                 end
-            end
-            if (no_col_feature == (SIZE_OF_FEATURE**2*NUM_OF_CHANNEL_EACH_KERNEL)/2)
-            begin
-                feature_rd_activate     <= 1'b0 ;
-                init <= 1'b1;
-            end
+                if (no_weight == `NUMBER_OF_WEIGHT)
+                begin
+                    feature_rd_activate     <= 1'b0 ;
+                    feature_rd_strobe       <= 1'b0;
+                end
+            end 
         end
     end
     
@@ -340,14 +393,16 @@ module deconv_multi_kernel_top#(
         end 
         else
         begin
-            if (((rd_count == SIZE_OF_FEATURE-1 & ~init)||(rd_count == SIZE_OF_FEATURE & init)) || (weight_fifo_export_done && no_col_weight >0) )
-//            if ( (rd_count == SIZE_OF_FEATURE) || (weight_fifo_export_done && no_col_weight >0))
+            if (i_enable)
             begin
-                op_top_enable_loadip <= 1'b1;   
-            end
-            if (op_top_enable_loadw && op_top_enable_loadip)
-            begin
-                op_top_enable_loadip <= 1'b0;
+                if (((rd_count == `FEATURE_SIZE-1 & ~init)||(rd_count == `FEATURE_SIZE & init)) || (weight_fifo_export_done && no_col_weight >0) )
+                begin
+                    op_top_enable_loadip <= 1'b1;   
+                end
+                if (op_top_enable_loadw && op_top_enable_loadip)
+                begin
+                    op_top_enable_loadip <= 1'b0;
+                end
             end
         end
     end

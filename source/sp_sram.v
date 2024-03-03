@@ -51,9 +51,10 @@ reg     [WIDTH-1:0] mem [DEPTH-1:0];
 //===============================================================================
 always @ (posedge i_clk)
 begin
-    if (ena & rea) begin
+//    if (ena & rea) 
+    begin
         if (addr_o < DEPTH) begin
-            douta <= mem[addr_o];
+            douta <= mem[addr_o-1];
         end
     end
 end

@@ -36,3 +36,4 @@ module edge_detector(
     assign sig_out = sig_in & ~sig_dlay;
 
 endmodule
+

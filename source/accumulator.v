@@ -26,6 +26,7 @@ module accumulator #
 )(
     input i_clk,
     input i_rst_n,
+    input [31:0] i_param_cfg_weight,
     input [DATA_WIDTH-1:0] data_in,
     input stop_accum, rec_accum,
     output [DATA_WIDTH-1:0] data_out,
@@ -48,6 +49,7 @@ module accumulator #
             end
             else if(stop_accum) begin
                 cnt_accum <= 0;
+                tmp_dat <= 0;
             end
         end
     end
@@ -59,7 +61,7 @@ module accumulator #
         else begin
             if(stop_accum) begin
                 reg_data_o <= tmp_dat;
-                tmp_dat <= 0;
+//                tmp_dat <= 0;
             end
         end
     end

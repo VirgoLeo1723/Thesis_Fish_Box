@@ -24,7 +24,7 @@ module tilling_buffer#(
     )(
 	    input                               clk_i       ,
   	    input                               rst_i       ,
-        input                               rd_en_i     ,
+        input      [3:0]                    rd_en_i     ,
         input      [3:0]                    wr_en_i     ,
   		input      [SIZE_OF_INPUT-1:0]      wr_data_i   ,
         output     [SIZE_OF_INPUT*SIZE_OF_BUFFER-1:0]  rd_data_o   ,
@@ -74,4 +74,5 @@ module tilling_buffer#(
         end
     endgenerate
 endmodule
+
 
